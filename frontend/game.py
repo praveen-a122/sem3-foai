@@ -24,7 +24,13 @@ from typing import List, Tuple, Dict, Any, Optional
 
 from .ui_assets import COLORS, CARD_SYMBOLS, FONT_FAMILY, FONT_SIZES, get_symbols_for_pairs
 from .telemetry_logger import TelemetryLogger
-from .session_manager import SessionManager, ROUNDS_BY_DIFFICULTY
+from .session_manager import (
+    SessionManager,
+    ROUNDS_BY_DIFFICULTY,
+    calculate_failed_attempt_metrics,
+    calculate_repeated_tile_metrics,
+    classify_metric_band,
+)
 
 # Restrict the game UI to neutral, green, and red tones.
 COLORS.update({
@@ -92,6 +98,50 @@ class Card:
             surface.blit(q_surf, q_rect)
 
 
+def _randomize_pair_layout(pair_items, rows: int, cols: int):
+    """Randomly place pairs without putting matching cards in neighboring cells."""
+    remaining = {}
+    symbols_by_pair = {}
+    for pair_id, symbol in pair_items:
+        remaining[pair_id] = remaining.get(pair_id, 0) + 1
+        symbols_by_pair[pair_id] = symbol
+
+    layout = []
+
+    def place_next(position: int) -> bool:
+        if position == len(pair_items):
+            return True
+
+        row, col = divmod(position, cols)
+        blocked_pairs = set()
+        if col:
+            blocked_pairs.add(layout[position - 1])
+        if row:
+            blocked_pairs.add(layout[position - cols])
+
+        candidates = [
+            pair_id
+            for pair_id, count in remaining.items()
+            if count and pair_id not in blocked_pairs
+        ]
+        random.shuffle(candidates)
+
+        for pair_id in candidates:
+            layout.append(pair_id)
+            remaining[pair_id] -= 1
+            if place_next(position + 1):
+                return True
+            remaining[pair_id] += 1
+            layout.pop()
+        return False
+
+    if not place_next(0):
+        raise RuntimeError(
+            f"Unable to arrange {len(pair_items)} pair tiles without adjacent matches"
+        )
+    return [(pair_id, symbols_by_pair[pair_id]) for pair_id in layout]
+
+
 class CognitiveMemoryGame:
     """
     Cognitive Assessment Serious Game with Dynamic Difficulty Adjustment,
@@ -139,6 +189,7 @@ class CognitiveMemoryGame:
         # Game state
         self.round_number = 1
         self.max_pair_rounds = 5
+        self.max_pattern_levels = 10
         self.phase = "home"
 
         self.session_manager = SessionManager()
@@ -152,17 +203,29 @@ class CognitiveMemoryGame:
             "Previous medical history": "",
             "Gender": "",
         }
+        self.patient_photo_path: Optional[str] = None
+        self.photo_selection_message = "Optional: no photo selected"
+        self.session_photo_cache: Dict[str, pygame.Surface] = {}
+        self.session_detail_scroll = 0
         self.testing_field = 0
         self.game_names = ["pairs", "color_pattern", "normal_pattern"]
         self.game_checks = [False, False, False]
         self.session_records = []
         self.selected_session = None
 
-        self.analysis_accuracy_weight = 40
-        self.analysis_failure_threshold = 50
-        self.analysis_settings_button = pygame.Rect(720, 20, 220, 48)
-        self.analysis_accuracy_slider = pygame.Rect(290, 330, 400, 12)
-        self.analysis_failure_slider = pygame.Rect(290, 445, 400, 12)
+        self.telemetry_settings_button = pygame.Rect(720, 20, 220, 48)
+        self.telemetry_thresholds = {
+            "failed_borderline": 25,
+            "failed_high": 50,
+            "repeat_borderline": 10,
+            "repeat_high": 25,
+        }
+        self.telemetry_threshold_sliders = {
+            "failed_borderline": pygame.Rect(270, 250, 420, 12),
+            "failed_high": pygame.Rect(270, 325, 420, 12),
+            "repeat_borderline": pygame.Rect(270, 450, 420, 12),
+            "repeat_high": pygame.Rect(270, 525, 420, 12),
+        }
 
         self.pattern_colors = [
             (235, 45, 45),    # red
@@ -174,6 +237,12 @@ class CognitiveMemoryGame:
             (175, 65, 190),   # violet
         ]
         self.pattern_color_order = list(range(len(self.pattern_colors)))
+        self.pattern_input: List[int] = []
+        self.pattern_sequence: List[int] = []
+        self.pattern_index = 0
+        self.pattern_active_cell: Optional[int] = None
+        self.pattern_next_at = 0.0
+        self.pattern_message = ""
 
         self.pattern_cells = [
             pygame.Rect(135 + col * 180, 230 + row * 135, 150, 110)
@@ -184,15 +253,9 @@ class CognitiveMemoryGame:
         for rect in self.pattern_cells[4:]:
             rect.x += 90
 
-        self.normal_pattern_cells = [
-            pygame.Rect(330 + col * 105, 190 + row * 105, 90, 90)
-            for row in range(3)
-            for col in range(3)
-        ]
-        self.normal_pattern_color = (125, 130, 125)
         self.pattern_click_animations: Dict[int, float] = {}
 
-        # Normal Flashing Pattern: unnumbered, uniform-grey 3×3 grid.
+        # Normal Flashing Pattern: unnumbered, uniform-grey 3x3 grid.
         self.normal_pattern_cells = [
             pygame.Rect(330 + col * 105, 190 + row * 105, 90, 90)
             for row in range(3)
@@ -272,7 +335,7 @@ class CognitiveMemoryGame:
             sym["color"] = symbol_colors[pair_id % len(symbol_colors)]
             pair_items.append((pair_id, sym))
             pair_items.append((pair_id, sym))
-        random.shuffle(pair_items)
+        pair_items = _randomize_pair_layout(pair_items, rows, cols)
 
         # Layout parameters
         board_top = 130
@@ -316,7 +379,13 @@ class CognitiveMemoryGame:
 
     def handle_click(self, pos: Tuple[int, int]):
         """Processes mouse click on a card with input lock guard."""
-        if self.is_analyzing_telemetry or self.round_completed or self.mismatch_timer is not None or self.micro_break_active:
+        if (
+            self.phase != "pairs"
+            or self.is_analyzing_telemetry
+            or self.round_completed
+            or self.mismatch_timer is not None
+            or self.micro_break_active
+        ):
             return
 
         for card in self.cards:
@@ -337,6 +406,7 @@ class CognitiveMemoryGame:
                             is_match,
                             round_number=self.round_number,
                             error=None if is_match else "Pair mismatch",
+                            repeated_tile_count=self.logger.last_attempt_repeated_tiles,
                         )
                     if is_match:
                         c1.is_matched = True
@@ -373,7 +443,8 @@ class CognitiveMemoryGame:
 
         if (
             self.phase in ("home", "testing_form", "testing_config", "sessions",
-            "session_detail", "analysis", "results")
+            "session_detail", "telemetry_settings", "results",
+            "color_pattern", "normal_pattern")
             and self.pattern_playing
             and now >= self.pattern_next_at
         ):
@@ -499,7 +570,7 @@ class CognitiveMemoryGame:
     def _start_pattern_game(self):
         self.phase = "color_pattern"
         self.pattern_level = 1
-        random.shuffle(self.pattern_color_order)
+        self.pattern_color_order = list(range(len(self.pattern_colors)))
         self.pattern_sequence = self._new_pattern_sequence(len(self.pattern_colors))
         self.pattern_click_animations.clear()
         self._replay_pattern()
@@ -507,7 +578,6 @@ class CognitiveMemoryGame:
     def _start_normal_pattern_game(self):
         self.phase = "normal_pattern"
         self.pattern_level = 1
-        self.pattern_color_order = list(range(len(self.normal_pattern_cells)))
         self.pattern_sequence = self._new_pattern_sequence(len(self.normal_pattern_cells))
         self.pattern_click_animations.clear()
         self._replay_pattern()
@@ -519,7 +589,12 @@ class CognitiveMemoryGame:
         for index, rect in enumerate(self._pattern_cells_for_phase()):
             if rect.collidepoint(pos):
                 if len(self.pattern_input) < len(self.pattern_sequence):
-                    self.pattern_input.append(index)
+                    selected_value = (
+                        self.pattern_color_order[index]
+                        if self.phase == "color_pattern"
+                        else index
+                    )
+                    self.pattern_input.append(selected_value)
                     self.pattern_click_animations[index] = time.time()
                     self.pattern_message = (
                         f"Selected {len(self.pattern_input)} of "
@@ -585,6 +660,8 @@ class CognitiveMemoryGame:
         self.screen.blit(text, text.get_rect(center=rect.center))
 
     def _replay_pattern(self):
+        if self.phase == "color_pattern":
+            random.shuffle(self.pattern_color_order)
         self.pattern_input.clear()
         self.pattern_index = 0
         self.pattern_active_cell = None
@@ -624,7 +701,7 @@ class CognitiveMemoryGame:
 
         if self.phase in (
             "home", "testing_form", "testing_config", "sessions",
-            "session_detail", "analysis", "results"
+            "session_detail", "telemetry_settings", "results"
         ):
             self._draw_section()
             return
@@ -653,16 +730,21 @@ class CognitiveMemoryGame:
 
             now = time.time()
             for index, rect in enumerate(cells):
-                active = self.pattern_active_cell == index
+                mapped_color = (
+                    self.pattern_color_order[index]
+                    if self.phase == "color_pattern"
+                    else index
+                )
+                active = self.pattern_active_cell == mapped_color
                 click_started = self.pattern_click_animations.get(index, -1.0)
                 elapsed = now - click_started
                 pulse = max(0.0, 1.0 - elapsed / 0.30) if elapsed < 0.30 else 0.0
 
                 if self.phase == "normal_pattern":
-                    base = self.normal_pattern_color
+                    base = (55, 60, 55)
                     idle = base
                 else:
-                    mapped_idx = self.pattern_color_order[index]
+                    mapped_idx = mapped_color
                     base = self.pattern_colors[mapped_idx]
                     idle = tuple(channel // 3 for channel in base)
 
@@ -688,8 +770,11 @@ class CognitiveMemoryGame:
 
                 pygame.draw.rect(self.screen, color, draw_rect, border_radius=16)
                 pygame.draw.rect(
-                    self.screen, COLORS["BORDER_ACTIVE"],
-                    draw_rect, width=3, border_radius=16
+                    self.screen,
+                    (255, 255, 255) if active else COLORS["BORDER_ACTIVE"],
+                    draw_rect,
+                    width=5 if active else 3,
+                    border_radius=16,
                 )
 
                 if self.phase == "color_pattern":
@@ -815,7 +900,34 @@ class CognitiveMemoryGame:
                 )
                 self.screen.blit(text, (rect.x + 12, rect.y + 15))
             self._draw_glass_button(
-                pygame.Rect(390, 540, 180, 55), "Choose Games", self.font_small
+                pygame.Rect(250, 510, 300, 48),
+                "Choose Patient Photo (Optional)",
+                self.font_small,
+            )
+            if self.patient_photo_path:
+                self._draw_glass_button(
+                    pygame.Rect(570, 510, 140, 48),
+                    "Clear Photo",
+                    self.font_small,
+                )
+            self.screen.blit(
+                self.font_small.render(
+                    f'Photo: {os.path.basename(self.patient_photo_path) if self.patient_photo_path else "None selected"}',
+                    True,
+                    COLORS["TEXT_MUTED"],
+                ),
+                (250, 566),
+            )
+            self.screen.blit(
+                self.font_small.render(
+                    self._fit_text(self.photo_selection_message, self.font_small, 460),
+                    True,
+                    COLORS["TEXT_MUTED"],
+                ),
+                (250, 586),
+            )
+            self._draw_glass_button(
+                pygame.Rect(390, 610, 180, 55), "Choose Games", self.font_small
             )
 
         elif self.phase == "testing_config":
@@ -852,22 +964,46 @@ class CognitiveMemoryGame:
             self.screen.blit(title, title.get_rect(center=(480, 100)))
 
             for i, record in enumerate(self.session_records[:5]):
-                y = 145 + i * 105
-                rect = pygame.Rect(25, y, 910, 96)
+                y = 140 + i * 110
+                rect = pygame.Rect(25, y, 910, 106)
                 pygame.draw.rect(self.screen, COLORS["PANEL_BG"], rect, border_radius=8)
                 pygame.draw.rect(
                     self.screen, COLORS["BORDER_DEFAULT"], rect, 1, border_radius=8
                 )
 
                 participant = record.get("participant", {})
-                header = self.font_small.render(
-                    f'{record.get("timestamp", "")} | '
+                photo_rect = pygame.Rect(38, y + 13, 76, 76)
+                self._draw_session_photo(record, photo_rect)
+                text_x = 126
+                header_text = self._fit_text(
                     f'{participant.get("name", "Unknown")} | '
+                    f'Age: {participant.get("age", "N/A")} | '
+                    f'Gender: {participant.get("gender") or "N/A"} | '
                     f'{record.get("status", "")}',
-                    True,
-                    COLORS["ACCENT_GOLD"],
+                    self.font_small,
+                    790,
                 )
-                self.screen.blit(header, (38, y + 8))
+                header = self.font_small.render(
+                    header_text, True, COLORS["ACCENT_GOLD"]
+                )
+                self.screen.blit(header, (text_x, y + 7))
+
+                history_rect = pygame.Rect(text_x, y + 30, 790, 22)
+                pygame.draw.rect(
+                    self.screen, COLORS["CARD_BACK"], history_rect, border_radius=8
+                )
+                history_text = participant.get("previous_medical_history") or (
+                    "No medical history provided"
+                )
+                tag_label = self._fit_text(
+                    f"Medical history · {history_text}",
+                    self.font_small,
+                    history_rect.width - 18,
+                )
+                self.screen.blit(
+                    self.font_small.render(tag_label, True, COLORS["TEXT_LIGHT"]),
+                    (history_rect.x + 9, history_rect.y + 3),
+                )
 
                 attempts = record.get("attempts", [])
                 for game_index, game_name in enumerate(record.get("allowed_games", [])[:3]):
@@ -887,7 +1023,7 @@ class CognitiveMemoryGame:
                         True,
                         COLORS["TEXT_LIGHT"],
                     )
-                    self.screen.blit(game_line, (48, y + 32 + game_index * 20))
+                    self.screen.blit(game_line, (text_x + 4, y + 55 + game_index * 16))
 
         elif self.phase == "session_detail":
             record = self.selected_session
@@ -897,18 +1033,131 @@ class CognitiveMemoryGame:
                 True,
                 COLORS["TEXT_LIGHT"],
             )
-            self.screen.blit(title, title.get_rect(center=(480, 105)))
+            self.screen.blit(title, title.get_rect(center=(480, 82)))
+            self._draw_glass_button(
+                self.telemetry_settings_button,
+                "Telemetry Settings",
+                self.font_small,
+            )
 
+            content_top = 120
+            history = participant.get("previous_medical_history") or "None provided"
+            history_lines = self._wrap_text(
+                f"Medical history: {history}", self.font_small, 770
+            )
+            profile_height = max(90, 40 + len(history_lines) * 22)
+            failed_metrics = calculate_failed_attempt_metrics(record)
+            repeat_metrics = calculate_repeated_tile_metrics(record)
+            metrics_height = 100
             rounds = record.get("rounds", [])
+            metrics_top = content_top + profile_height + 10
+            telemetry_top = metrics_top + metrics_height
+            content_height = telemetry_top - content_top + 38 + max(
+                1, len(rounds)
+            ) * 48
+            max_scroll = max(0, content_height - (self.height - content_top))
+            self.session_detail_scroll = min(self.session_detail_scroll, max_scroll)
+            scroll_offset = self.session_detail_scroll
+
+            previous_clip = self.screen.get_clip()
+            self.screen.set_clip(
+                pygame.Rect(0, content_top, self.width, self.height - content_top)
+            )
+            photo_rect = pygame.Rect(35, content_top - scroll_offset, 90, 90)
+            self._draw_session_photo(record, photo_rect)
+            profile_y = content_top - scroll_offset
+            identity = (
+                f'Age: {participant.get("age", "N/A")}  |  '
+                f'Gender: {participant.get("gender") or "N/A"}'
+            )
+            self.screen.blit(
+                self.font_small.render(identity, True, COLORS["TEXT_LIGHT"]),
+                (145, profile_y + 5),
+            )
+            for line_index, line in enumerate(history_lines):
+                self.screen.blit(
+                    self.font_small.render(line, True, COLORS["TEXT_LIGHT"]),
+                    (145, profile_y + 32 + line_index * 22),
+                )
+            failed_band = (
+                classify_metric_band(
+                    failed_metrics["failed_percentage"],
+                    self.telemetry_thresholds["failed_borderline"],
+                    self.telemetry_thresholds["failed_high"],
+                )
+                if failed_metrics["total_attempts"]
+                else "No attempts recorded"
+            )
+            failed_color = self._metric_band_color(failed_band)
+            self.screen.blit(
+                self.font_small.render(
+                    "Failed tries (all selected games)", True, COLORS["TEXT_MUTED"]
+                ),
+                (35, metrics_top - scroll_offset),
+            )
+            failed_text = (
+                f'{failed_metrics["failed_attempts"]} / '
+                f'{failed_metrics["total_attempts"]} failed '
+                f'({failed_metrics["failed_percentage"]:.1f}%) — {failed_band}'
+            )
+            self.screen.blit(
+                self.font_small.render(failed_text, True, failed_color),
+                (330, metrics_top - scroll_offset),
+            )
+
+            if repeat_metrics["tracked_pair_attempts"]:
+                repeat_band = classify_metric_band(
+                    repeat_metrics["repeated_tile_percentage"],
+                    self.telemetry_thresholds["repeat_borderline"],
+                    self.telemetry_thresholds["repeat_high"],
+                )
+                repeat_text = (
+                    f'{repeat_metrics["repeated_tile_misses"]} repeated tile picks / '
+                    f'{repeat_metrics["total_pair_card_flips"]} pair-card flips '
+                    f'({repeat_metrics["repeated_tile_percentage"]:.1f}%) — '
+                    f'{repeat_band}'
+                )
+            else:
+                repeat_band = "Repeat-tile data unavailable"
+                repeat_text = (
+                    "No repeat-tile tracking in this session's saved attempts"
+                )
+            self.screen.blit(
+                self.font_small.render(
+                    "Repeated tile picks in failed pairs", True, COLORS["TEXT_MUTED"]
+                ),
+                (35, metrics_top + 24 - scroll_offset),
+            )
+            self.screen.blit(
+                self.font_small.render(
+                    self._fit_text(repeat_text, self.font_small, 580),
+                    True,
+                    self._metric_band_color(repeat_band),
+                ),
+                (330, metrics_top + 24 - scroll_offset),
+            )
+            disclaimer = self.font_small.render(
+                "Gameplay indicators only; not a diagnosis or dementia-risk estimate.",
+                True,
+                COLORS["TEXT_MUTED"],
+            )
+            self.screen.blit(
+                disclaimer, (35, metrics_top + 52 - scroll_offset)
+            )
+            self.screen.blit(
+                self.font_sub.render("Session Telemetry", True, COLORS["ACCENT_GOLD"]),
+                (35, telemetry_top - scroll_offset),
+            )
+
             if not rounds:
                 message = self.font_small.render(
                     "No round telemetry saved for this session.",
                     True,
                     COLORS["TEXT_LIGHT"],
                 )
-                self.screen.blit(message, message.get_rect(center=(480, 190)))
+                self.screen.blit(message, (35, telemetry_top + 38 - scroll_offset))
             else:
-                for i, item in enumerate(rounds[-8:]):
+                for i, item in enumerate(rounds):
                     telemetry = item.get("telemetry", {})
                     line1 = (
                         f'{item.get("game", "")} | Round {item.get("round", "")} | '
@@ -922,7 +1171,7 @@ class CognitiveMemoryGame:
                         f'RT: {telemetry.get("Mean_Reaction_Time_ms", "N/A")} ms | '
                         f'Time: {telemetry.get("Round_Completion_Time_sec", "N/A")} s'
                     )
-                    y = 160 + i * 48
+                    y = telemetry_top + 38 + i * 48 - scroll_offset
                     self.screen.blit(
                         self.font_small.render(line1, True, COLORS["TEXT_LIGHT"]),
                         (35, y),
@@ -931,6 +1180,64 @@ class CognitiveMemoryGame:
                         self.font_small.render(line2, True, COLORS["TEXT_LIGHT"]),
                         (35, y + 22),
                     )
+            self.screen.set_clip(previous_clip)
+
+        elif self.phase == "telemetry_settings":
+            title = self.font_header.render(
+                "Telemetry Settings", True, COLORS["TEXT_LIGHT"]
+            )
+            self.screen.blit(title, title.get_rect(center=(480, 100)))
+            self.screen.blit(
+                self.font_small.render(
+                    "Set percentage bands for gameplay indicators (0–100%).",
+                    True,
+                    COLORS["TEXT_MUTED"],
+                ),
+                (230, 150),
+            )
+
+            settings = (
+                ("Failed tries — Borderline from", "failed_borderline"),
+                ("Failed tries — High concern from", "failed_high"),
+                ("Repeated tile picks — Borderline from", "repeat_borderline"),
+                ("Repeated tile picks — High concern from", "repeat_high"),
+            )
+            for label, key in settings:
+                slider = self.telemetry_threshold_sliders[key]
+                value = self.telemetry_thresholds[key]
+                self.screen.blit(
+                    self.font_small.render(f"{label}: {value}%", True, COLORS["TEXT_LIGHT"]),
+                    (slider.x, slider.y - 26),
+                )
+                pygame.draw.line(
+                    self.screen,
+                    COLORS["BORDER_DEFAULT"],
+                    (slider.left, slider.centery),
+                    (slider.right, slider.centery),
+                    6,
+                )
+                knob_x = slider.left + round(slider.width * value / 100)
+                pygame.draw.circle(
+                    self.screen, COLORS["ACCENT_GOLD"], (knob_x, slider.centery), 11
+                )
+
+            self.screen.blit(
+                self.font_small.render(
+                    "Healthy-range: below borderline  |  Borderline: between bands  |  "
+                    "High concern (red): at/above high threshold",
+                    True,
+                    COLORS["TEXT_LIGHT"],
+                ),
+                (140, 585),
+            )
+            self.screen.blit(
+                self.font_small.render(
+                    "These are configurable game-performance labels, not clinical conclusions.",
+                    True,
+                    COLORS["TEXT_MUTED"],
+                ),
+                (180, 615),
+            )
 
         pygame.display.flip()
 
@@ -954,7 +1261,12 @@ class CognitiveMemoryGame:
                 if pygame.Rect(250, y, 460, 48).collidepoint(pos):
                     self.testing_field = i
                     return True
-            if pygame.Rect(390, 540, 180, 55).collidepoint(pos):
+            if pygame.Rect(250, 510, 300, 48).collidepoint(pos):
+                self._choose_patient_photo()
+            elif pygame.Rect(570, 510, 140, 48).collidepoint(pos):
+                self.patient_photo_path = None
+                self.photo_selection_message = "Optional: no photo selected"
+            elif pygame.Rect(390, 610, 180, 55).collidepoint(pos):
                 self.phase = "testing_config"
             elif self.menu_button.collidepoint(pos):
                 self.phase = "home"
@@ -980,8 +1292,12 @@ class CognitiveMemoryGame:
                 self.phase = "home"
                 return True
             for i, record in enumerate(self.session_records[:5]):
-                if pygame.Rect(25, 145 + i * 105, 910, 96).collidepoint(pos):
+                y = 140 + i * 110
+                card_rect = pygame.Rect(25, y, 910, 106)
+                medical_history_tag = pygame.Rect(126, y + 30, 790, 22)
+                if medical_history_tag.collidepoint(pos) or card_rect.collidepoint(pos):
                     self.selected_session = record
+                    self.session_detail_scroll = 0
                     self.phase = "session_detail"
                     return True
             return True
@@ -989,49 +1305,37 @@ class CognitiveMemoryGame:
         if self.phase == "session_detail":
             if self.menu_button.collidepoint(pos):
                 self.phase = "sessions"
-            elif self.analysis_settings_button.collidepoint(pos):
-                self.phase = "analysis"
+            elif self.telemetry_settings_button.collidepoint(pos):
+                self.phase = "telemetry_settings"
             return True
 
-        if self.phase == "analysis":
-            title = self.font_header.render(
-                "Analysis Settings", True, COLORS["TEXT_LIGHT"]
-            )
-            self.screen.blit(title, title.get_rect(center=(480, 110)))
-
-            failure_text = "Failed attempts: unavailable"
-            self.screen.blit(
-                self.font_sub.render(failure_text, True, COLORS["TEXT_LIGHT"]),
-                (150, 175),
-            )
-
-            for label, value, slider in (
-                ("Accuracy weight", self.analysis_accuracy_weight, self.analysis_accuracy_slider),
-                ("Failure review threshold", self.analysis_failure_threshold, self.analysis_failure_slider),
-            ):
-                self.screen.blit(
-                    self.font_small.render(f"{label}: {value}%", True, COLORS["TEXT_LIGHT"]),
-                    (150, slider.y - 28),
-                )
-                pygame.draw.line(
-                    self.screen, COLORS["BORDER_DEFAULT"],
-                    (slider.left, slider.centery), (slider.right, slider.centery), 6,
-                )
-                knob_x = slider.left + int(slider.width * value / 100)
-                pygame.draw.circle(
-                    self.screen, COLORS["ACCENT_GOLD"], (knob_x, slider.centery), 11
-                )
-
-            self.screen.blit(
-                self.font_small.render(
-                    "These settings describe game performance; they do not estimate dementia.",
-                    True,
-                    COLORS["TEXT_MUTED"],
-                ),
-                (150, 520),
-            )
+        if self.phase == "telemetry_settings":
+            if self.menu_button.collidepoint(pos):
+                self.phase = "session_detail"
+                return True
+            for key, slider in self.telemetry_threshold_sliders.items():
+                if slider.inflate(0, 24).collidepoint(pos):
+                    self._set_telemetry_threshold_from_x(key, pos[0])
+                    return True
+            return True
 
         pygame.display.flip()
+
+    def _handle_game_menu_click(self, pos: Tuple[int, int]) -> bool:
+        """Start a selected game from the game menu, if its button was clicked."""
+        if self.pair_menu_button.collidepoint(pos):
+            if not self.testing_active or "pairs" in self.testing_games:
+                self._start_pairs_game()
+            return True
+        if self.pattern_menu_button.collidepoint(pos):
+            if not self.testing_active or "color_pattern" in self.testing_games:
+                self._start_pattern_game()
+            return True
+        if self.normal_pattern_menu_button.collidepoint(pos):
+            if not self.testing_active or "normal_pattern" in self.testing_games:
+                self._start_normal_pattern_game()
+            return True
+        return False
 
     def _handle_testing_key(self, event):
         if self.phase != "testing_form":
@@ -1046,6 +1350,113 @@ class CognitiveMemoryGame:
             if field != "Age" or event.unicode.isdigit():
                 self.testing_fields[field] += event.unicode
         return True
+
+    def _set_telemetry_threshold_from_x(self, key: str, x: int) -> None:
+        """Set a percentage threshold while preserving each band's ordering."""
+        slider = self.telemetry_threshold_sliders[key]
+        value = round(
+            max(0.0, min(1.0, (x - slider.left) / slider.width)) * 100
+        )
+        if key.endswith("_borderline"):
+            high_key = key.replace("_borderline", "_high")
+            self.telemetry_thresholds[key] = min(
+                value, self.telemetry_thresholds[high_key] - 1
+            )
+        else:
+            borderline_key = key.replace("_high", "_borderline")
+            self.telemetry_thresholds[key] = max(
+                value, self.telemetry_thresholds[borderline_key] + 1
+            )
+
+    @staticmethod
+    def _metric_band_color(band: str) -> Tuple[int, int, int]:
+        if band == "High concern (red)":
+            return COLORS["ERROR_RED"]
+        if band == "Borderline":
+            return COLORS["ACCENT_GOLD"]
+        if "unavailable" in band.lower() or "no attempts" in band.lower():
+            return COLORS["TEXT_MUTED"]
+        return COLORS["SUCCESS_GREEN"]
+
+    def _choose_patient_photo(self):
+        """Open a native file picker for an optional patient photo."""
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+        except ImportError as exc:
+            self.photo_selection_message = f"Photo picker unavailable: {exc}"
+            return
+
+        root = None
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            photo_path = filedialog.askopenfilename(
+                title="Choose patient photo",
+                filetypes=[
+                    ("Image files", "*.bmp *.gif *.jpg *.jpeg *.png"),
+                    ("All files", "*.*"),
+                ],
+            )
+            if not photo_path:
+                return
+
+            pygame.image.load(photo_path)
+            self.patient_photo_path = photo_path
+            self.photo_selection_message = "Photo selected"
+        except (OSError, pygame.error, tk.TclError) as exc:
+            self.photo_selection_message = f"Could not load photo: {exc}"
+        finally:
+            if root is not None:
+                root.destroy()
+
+    @staticmethod
+    def _fit_text(text: str, font: pygame.font.Font, max_width: int) -> str:
+        if font.size(text)[0] <= max_width:
+            return text
+        ellipsis = "..."
+        while text and font.size(text + ellipsis)[0] > max_width:
+            text = text[:-1]
+        return text + ellipsis
+
+    @staticmethod
+    def _wrap_text(text: str, font: pygame.font.Font, max_width: int) -> List[str]:
+        lines = []
+        line = ""
+        for word in text.split():
+            candidate = f"{line} {word}".strip()
+            if line and font.size(candidate)[0] > max_width:
+                lines.append(line)
+                line = word
+            else:
+                line = candidate
+        if line:
+            lines.append(line)
+        return lines or [""]
+
+    def _draw_session_photo(self, record: Dict[str, Any], rect: pygame.Rect) -> None:
+        pygame.draw.rect(
+            self.screen, COLORS["CARD_BACK"], rect, border_radius=8
+        )
+        photo_path = self.session_manager.photo_path_for(record)
+        if photo_path is None:
+            initials = record.get("participant", {}).get("name", "?")[:1].upper()
+            label = self.font_header.render(initials or "?", True, COLORS["TEXT_LIGHT"])
+            self.screen.blit(label, label.get_rect(center=rect.center))
+            return
+
+        cache_key = str(photo_path)
+        photo = self.session_photo_cache.get(cache_key)
+        if photo is None:
+            try:
+                loaded = pygame.image.load(str(photo_path))
+                photo = pygame.transform.smoothscale(loaded, rect.size)
+            except pygame.error as exc:
+                print(f"[Warning] Could not display saved patient photo: {exc}")
+                return
+            self.session_photo_cache[cache_key] = photo
+        self.screen.blit(photo, rect)
 
     def _start_testing(self):
         participant = {
@@ -1065,9 +1476,18 @@ class CognitiveMemoryGame:
         if not self.testing_games:
             return
 
-        self.session_manager.start(
-            participant, self.testing_games, self.testing_difficulty
-        )
+        try:
+            self.session_manager.start(
+                participant,
+                self.testing_games,
+                self.testing_difficulty,
+                photo_path=self.patient_photo_path,
+            )
+        except (OSError, ValueError) as exc:
+            self.patient_photo_path = None
+            self.photo_selection_message = f"Could not save patient photo: {exc}"
+            self.phase = "testing_form"
+            return
         if self.mesa_model is not None:
             self.mesa_model.session_id = self.session_manager.data["session_id"]
 
@@ -1111,19 +1531,24 @@ class CognitiveMemoryGame:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+                elif event.type == pygame.MOUSEWHEEL and self.phase == "session_detail":
+                    self.session_detail_scroll = max(
+                        0, self.session_detail_scroll - event.y * 40
+                    )
+                elif (
+                    event.type == pygame.MOUSEMOTION
+                    and self.phase == "telemetry_settings"
+                    and event.buttons[0]
+                ):
+                    for key, slider in self.telemetry_threshold_sliders.items():
+                        if slider.inflate(0, 24).collidepoint(event.pos):
+                            self._set_telemetry_threshold_from_x(key, event.pos[0])
+                            break
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if self._handle_section_click(event.pos):
                         pass
                     elif self.phase == "menu":
-                        if self.pair_menu_button.collidepoint(event.pos):
-                            if not self.testing_active or "pairs" in self.testing_games:
-                                self._start_pairs_game()
-                        elif self.pattern_menu_button.collidepoint(event.pos):
-                            if not self.testing_active or "color_pattern" in self.testing_games:
-                                self._start_pattern_game()
-                        elif self.normal_pattern_menu_button.collidepoint(event.pos):
-                            if not self.testing_active or "normal_pattern" in self.testing_games:
-                                self._start_normal_pattern_game()
+                        self._handle_game_menu_click(event.pos)
                     elif self.phase in ("color_pattern", "normal_pattern", "pattern_complete"):
                         if self.menu_button.collidepoint(event.pos):
                             self._return_to_menu()

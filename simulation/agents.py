@@ -1,5 +1,6 @@
 import os
 import pickle
+import threading
 import mesa
 import numpy as np
 from typing import Dict, Any, Optional, List, Tuple
@@ -15,18 +16,10 @@ class TileAgent(mesa.Agent):
     def __init__(
         self,
         model: mesa.Model,
-        unique_id: int,
-        pos: Optional[Tuple[int, int]] = None,
         pair_id: int = -1,
         symbol: str = ""
     ):
-        try:
-            super().__init__(model)
-        except TypeError:
-            super().__init__(unique_id, model)
-
-        # Guarantee unique_id is always explicitly defined across Mesa versions
-        self.unique_id = unique_id
+        super().__init__(model)
         self.pos: Optional[Tuple[int, int]] = None
         self.pair_id = pair_id
         self.symbol = symbol
@@ -50,19 +43,12 @@ class PatientAgent(mesa.Agent):
     def __init__(
         self,
         model: mesa.Model,
-        unique_id: Optional[int] = None,
         cdr_level: float = 0.0,
         age: int = 75,
         educ: int = 3,
         calibrated_params: Optional[Dict[str, float]] = None
     ):
-        uid = unique_id if unique_id is not None else 1
-        try:
-            super().__init__(model)
-        except TypeError:
-            super().__init__(uid, model)
-
-        self.unique_id = uid
+        super().__init__(model)
         self.cdr_level = cdr_level
         self.age = age
         self.educ = educ
@@ -212,14 +198,8 @@ class ScreenerAgent(mesa.Agent):
     Grounded in OASIS-1 empirical distributions and session telemetry features.
     """
 
-    def __init__(self, model: mesa.Model, unique_id: Optional[int] = None):
-        uid = unique_id if unique_id is not None else 2
-        try:
-            super().__init__(model)
-        except TypeError:
-            super().__init__(uid, model)
-
-        self.unique_id = uid
+    def __init__(self, model: mesa.Model):
+        super().__init__(model)
         self.pos: Optional[Tuple[int, int]] = None
         self.session_history: List[Dict[str, Any]] = []
         self.predicted_mmse: float = 30.0
@@ -232,7 +212,13 @@ class ScreenerAgent(mesa.Agent):
         self.clf_pipeline = None
         self.reg_pipeline = None
         self.ml_trained: bool = False
-        self._load_ml_model()
+        self._ml_model_loaded = threading.Event()
+        self._ml_model_load_thread = threading.Thread(
+            target=self._load_ml_model,
+            name=f"ScreenerAgent-{self.unique_id}-ml-loader",
+            daemon=True,
+        )
+        self._ml_model_load_thread.start()
 
     def _load_ml_model(self) -> None:
         """Load the optional ML model; keep the screener usable if unavailable."""
@@ -271,6 +257,8 @@ class ScreenerAgent(mesa.Agent):
                 "[ScreenerAgent Warning] ML unavailable; using heuristic fallback. "
                 f"Details: {exc}"
             )
+        finally:
+            self._ml_model_loaded.set()
 
     def step(self) -> None:
         """
@@ -434,16 +422,9 @@ class AdaptiveDifficultyAgent(mesa.Agent):
     def __init__(
         self,
         model: mesa.Model,
-        unique_id: Optional[int] = None,
         target_profile: str = "Elderly"  # "Elderly" or "Adolescent"
     ):
-        uid = unique_id if unique_id is not None else 3
-        try:
-            super().__init__(model)
-        except TypeError:
-            super().__init__(uid, model)
-
-        self.unique_id = uid
+        super().__init__(model)
         self.pos: Optional[Tuple[int, int]] = None
         self.target_profile = target_profile
         self.current_grid_idx: int = 0         # Starts at 3x4 (safe baseline)

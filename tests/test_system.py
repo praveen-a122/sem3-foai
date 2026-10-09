@@ -15,6 +15,7 @@ Validates all requirements for Team 3:
 
 import os
 import sys
+import threading
 import time
 import pytest
 import numpy as np
@@ -35,6 +36,12 @@ from frontend.ui_assets import (
     is_wcag_aaa_compliant,
 )
 from frontend.telemetry_logger import TelemetryLogger
+from frontend.session_manager import (
+    SessionManager,
+    calculate_failed_attempt_metrics,
+    calculate_repeated_tile_metrics,
+    classify_metric_band,
+)
 from simulation.agents import PatientAgent, ScreenerAgent, AdaptiveDifficultyAgent, TileAgent
 from simulation.model import CognitiveHealthModel
 from mesa.space import SingleGrid
@@ -112,6 +119,37 @@ class TestTelemetryLogger:
         # Reaction time should be minimal (< 70ms) despite 80ms sleep
         assert rt2 < 70.0
 
+    def test_repeated_tile_misses_count_only_wrong_reopened_tiles(self, tmp_path):
+        logger = TelemetryLogger(
+            log_filepath=str(tmp_path / "repeated_tile_misses.csv")
+        )
+        logger.start_round(round_num=1)
+
+        logger.record_card_flip(0, "Sun")
+        logger.record_card_flip(1, "Moon")
+        assert logger.record_pair_attempt(0, "Sun", 1, "Moon") is False
+        assert logger.last_attempt_repeated_tiles == 0
+
+        logger.record_card_flip(0, "Sun")
+        logger.record_card_flip(2, "Star")
+        assert logger.record_pair_attempt(0, "Sun", 2, "Star") is False
+        assert logger.last_attempt_repeated_tiles == 1
+
+        logger.record_card_flip(1, "Moon")
+        logger.record_card_flip(2, "Star")
+        assert logger.record_pair_attempt(1, "Moon", 2, "Star") is False
+        assert logger.last_attempt_repeated_tiles == 2
+        assert logger.repeated_tile_misses == 3
+
+        logger.record_card_flip(0, "Sun")
+        logger.record_card_flip(3, "Sun")
+        assert logger.record_pair_attempt(0, "Sun", 3, "Sun") is True
+        assert logger.last_attempt_repeated_tiles == 0
+        assert logger.repeated_tile_misses == 3
+
+        summary = logger.complete_round(total_pairs=6)
+        assert summary["Repeated_Tile_Misses"] == 3
+
 
 class TestCardAssetsAndGenerator:
     """Verifies expanded 30 symbols and robust fallback permutation generation."""
@@ -161,6 +199,44 @@ class TestCardAssetsAndGenerator:
 class TestMesaMultiAgentSpatialClosedLoop:
     """Verifies Mesa model, PatientAgent, ScreenerAgent, AdaptiveDifficultyAgent, and 2D SingleGrid."""
 
+    def test_model_initialization_does_not_wait_for_optional_ml(self, monkeypatch):
+        loader_started = threading.Event()
+        allow_loader_to_finish = threading.Event()
+        initialization_finished = threading.Event()
+        models = []
+        initialization_errors = []
+
+        def blocked_ml_load(_agent):
+            loader_started.set()
+            allow_loader_to_finish.wait(timeout=5)
+
+        def initialize_model():
+            try:
+                models.append(CognitiveHealthModel())
+            except Exception as exc:
+                initialization_errors.append(exc)
+            finally:
+                initialization_finished.set()
+
+        monkeypatch.setattr(ScreenerAgent, "_load_ml_model", blocked_ml_load)
+        initializer = threading.Thread(target=initialize_model)
+        initializer.start()
+        try:
+            assert loader_started.wait(timeout=5)
+            assert initialization_finished.wait(timeout=5), (
+                "Mesa model initialization waited for the optional ML load"
+            )
+            assert not initialization_errors
+            assessment = models[0].screener.evaluate_telemetry({})
+            assert assessment["Assessment_Method"] == "heuristic_fallback"
+        finally:
+            allow_loader_to_finish.set()
+            initializer.join(timeout=5)
+            if models:
+                models[0].screener._ml_model_load_thread.join(timeout=5)
+
+        assert not initializer.is_alive()
+
     def test_spatial_singlegrid_representation(self):
         model = CognitiveHealthModel(
             cdr_level=0.0,
@@ -193,10 +269,12 @@ class TestMesaMultiAgentSpatialClosedLoop:
         """Ensures resizing from 3x4 to 4x4 and back cleanly removes tiles without OccupiedError."""
         model = CognitiveHealthModel()
         assert len(model.tile_agents) == 12
+        assert len(model.agents) == 15
 
         # Resize up to 4x4 (16 tiles)
         model._update_tile_grid("4x4")
         assert len(model.tile_agents) == 16
+        assert len(model.agents) == 19
         for r in range(4):
             for c in range(4):
                 assert not model.grid.is_cell_empty((r, c))
@@ -204,6 +282,8 @@ class TestMesaMultiAgentSpatialClosedLoop:
         # Resize down to 3x4 (12 tiles) - verify row 3 is cleanly evacuated
         model._update_tile_grid("3x4")
         assert len(model.tile_agents) == 12
+        assert len(model.agents) == 15
+        assert len({agent.unique_id for agent in model.agents}) == len(model.agents)
         for c in range(4):
             # Row 3 must be empty now
             assert model.grid.is_cell_empty((3, c))
@@ -278,6 +358,7 @@ class TestMesaMultiAgentSpatialClosedLoop:
         """Tests that ScreenerAgent uses the ML model to accurately classify healthy vs deficit."""
         model = CognitiveHealthModel()
         screener = model.screener
+        assert screener._ml_model_loaded.wait(timeout=60), "ML model loading did not complete"
         assert screener.ml_trained is True
 
         # Healthy telemetry: Fast RT, minimal errors, zero hesitations
@@ -309,10 +390,346 @@ class TestMesaMultiAgentSpatialClosedLoop:
 class TestPygameGameFlow:
     """Verifies that the Pygame Serious Game integrates seamlessly with Mesa closed loop."""
 
+    def test_pattern_modes_initialize_input_state(self, tmp_path):
+        from frontend.game import CognitiveMemoryGame
+
+        game = CognitiveMemoryGame(
+            headless=True,
+            enable_mesa_coupling=False,
+            log_filepath=str(tmp_path / "pattern_start.csv"),
+        )
+
+        game._start_pattern_game()
+        assert game.phase == "color_pattern"
+        assert game.pattern_playing is True
+        assert game.pattern_input == []
+        assert len(game.pattern_sequence) == 3
+        assert game.pattern_message == "Watch the pattern"
+        assert game.max_pattern_levels == 10
+
+        game._start_normal_pattern_game()
+        assert game.phase == "normal_pattern"
+        assert game.pattern_playing is True
+        assert game.pattern_input == []
+        assert len(game.pattern_sequence) == 3
+        assert game.pattern_message == "Watch the pattern"
+        assert len(game.pattern_color_order) == len(game.pattern_colors)
+
+        game._start_pattern_game()
+        assert game.phase == "color_pattern"
+        assert len(game.pattern_color_order) == len(game.pattern_colors)
+
+    def test_enter_submission_advances_and_finishes_free_play(self, tmp_path):
+        from frontend.game import CognitiveMemoryGame
+
+        game = CognitiveMemoryGame(
+            headless=True,
+            enable_mesa_coupling=False,
+            log_filepath=str(tmp_path / "pattern_submit.csv"),
+        )
+        game._start_pattern_game()
+        game.pattern_playing = False
+        game.pattern_input = list(game.pattern_sequence)
+
+        game._submit_pattern()
+        assert game.pattern_level == 2
+        assert len(game.pattern_sequence) == 4
+        assert game.pattern_playing is True
+
+        game.pattern_playing = False
+        game.pattern_level = game.max_pattern_levels
+        game.pattern_input = list(game.pattern_sequence)
+        game._submit_pattern()
+        assert game.phase == "pattern_complete"
+        assert game.pattern_message == "You completed all 10 levels!"
+
+    def test_color_pattern_records_color_not_position(self, tmp_path, monkeypatch):
+        from frontend.game import CognitiveMemoryGame
+
+        game = CognitiveMemoryGame(
+            headless=True,
+            enable_mesa_coupling=False,
+            log_filepath=str(tmp_path / "color_identity.csv"),
+        )
+        game._start_pattern_game()
+        game.pattern_color_order = [3, 0, 5, 1, 6, 2, 4]
+        game.pattern_playing = False
+
+        # Clicking the cell currently showing GREEN records GREEN's identity (3),
+        # rather than that cell's position (0).
+        game._handle_pattern_click(game.pattern_cells[0].center)
+        assert game.pattern_input == [3]
+
+        game.pattern_sequence = [0, 1, 2]
+        previous_order = list(game.pattern_color_order)
+        monkeypatch.setattr("frontend.game.random.shuffle", lambda order: order.reverse())
+        game._replay_pattern()
+        assert game.pattern_sequence == [0, 1, 2]
+        assert game.pattern_color_order == list(reversed(previous_order))
+        assert game.pattern_playing is True
+
+    def test_normal_pattern_flashes_one_of_nine_cells(self, tmp_path, monkeypatch):
+        import pygame
+        from frontend.game import CognitiveMemoryGame
+
+        pygame.font.init()
+        monkeypatch.setattr(pygame.display, "flip", lambda: None)
+        game = CognitiveMemoryGame(
+            headless=True,
+            enable_mesa_coupling=False,
+            log_filepath=str(tmp_path / "normal_pattern_flash.csv"),
+        )
+        game.screen = pygame.Surface((game.width, game.height))
+        game.font_header = pygame.font.SysFont(None, 30)
+        game.font_sub = pygame.font.SysFont(None, 20)
+        game.font_small = pygame.font.SysFont(None, 14)
+        game._start_normal_pattern_game()
+
+        assert len(game.normal_pattern_cells) == 9
+        game.pattern_next_at = 0
+        game.update()
+        assert game.pattern_active_cell in range(9)
+
+        active_cell = game.pattern_active_cell
+        game.draw()
+        assert game.screen.get_at(
+            game.normal_pattern_cells[active_cell].center
+        )[:3] == (245, 245, 245)
+
+    def test_session_performance_metrics_and_threshold_bands(self):
+        session = {
+            "attempts": [
+                {"game": "pairs", "success": False, "repeated_tile_count": 1},
+                {"game": "pairs", "success": True, "repeated_tile_count": 0},
+                {"game": "color_pattern", "success": False},
+                {"game": "pairs", "success": False, "repeated_tile_count": 2},
+            ]
+        }
+        failed = calculate_failed_attempt_metrics(session)
+        repeated = calculate_repeated_tile_metrics(session)
+
+        assert failed == {
+            "failed_attempts": 3,
+            "total_attempts": 4,
+            "failed_percentage": 75.0,
+        }
+        assert repeated == {
+            "repeated_tile_misses": 3,
+            "total_pair_card_flips": 6,
+            "tracked_pair_attempts": 3,
+            "repeated_tile_percentage": 50.0,
+        }
+        assert classify_metric_band(24.9, 25, 50) == "Healthy-range"
+        assert classify_metric_band(25, 25, 50) == "Borderline"
+        assert classify_metric_band(50, 25, 50) == "High concern (red)"
+
+    def test_telemetry_settings_menu_adjusts_percentage_sliders(
+        self, tmp_path, monkeypatch
+    ):
+        import pygame
+        from frontend.game import CognitiveMemoryGame
+
+        pygame.font.init()
+        monkeypatch.setattr(pygame.display, "flip", lambda: None)
+        game = CognitiveMemoryGame(
+            headless=True,
+            enable_mesa_coupling=False,
+            log_filepath=str(tmp_path / "settings.csv"),
+        )
+        game.screen = pygame.Surface((game.width, game.height))
+        game.font_header = pygame.font.SysFont(None, 30)
+        game.font_sub = pygame.font.SysFont(None, 20)
+        game.font_small = pygame.font.SysFont(None, 14)
+        game.phase = "session_detail"
+        assert game._handle_section_click(game.telemetry_settings_button.center)
+        assert game.phase == "telemetry_settings"
+        game.draw()
+
+        high_slider = game.telemetry_threshold_sliders["failed_high"]
+        game._set_telemetry_threshold_from_x(
+            "failed_high", high_slider.left + round(high_slider.width * 0.6)
+        )
+        assert game.telemetry_thresholds["failed_high"] == 60
+
+        borderline_slider = game.telemetry_threshold_sliders["failed_borderline"]
+        game._set_telemetry_threshold_from_x(
+            "failed_borderline", borderline_slider.right
+        )
+        assert game.telemetry_thresholds["failed_borderline"] == 59
+
+        assert game._handle_section_click(game.menu_button.center)
+        assert game.phase == "session_detail"
+
+    def test_game_records_reopened_wrong_tile_in_patient_session(self, tmp_path):
+        import time
+        from frontend.game import CognitiveMemoryGame
+
+        game = CognitiveMemoryGame(
+            headless=True,
+            enable_mesa_coupling=False,
+            log_filepath=str(tmp_path / "repeat_tile_session.csv"),
+        )
+        manager = SessionManager()
+        manager.root = tmp_path / "sessions"
+        manager.root.mkdir()
+        manager.start({"name": "Patient"}, ["pairs"], "Easy")
+        game.session_manager = manager
+        game.testing_active = True
+        game.phase = "pairs"
+        game._setup_round()
+
+        first_card = game.cards[0]
+        first_wrong_pair = next(
+            card for card in game.cards if card.pair_id != first_card.pair_id
+        )
+        game.handle_click(first_card.rect.center)
+        game.handle_click(first_wrong_pair.rect.center)
+        assert manager.data["attempts"][-1]["repeated_tile_count"] == 0
+
+        game.mismatch_timer = time.time() - game.exposure_time_sec - 0.1
+        game.update()
+        second_wrong_pair = next(
+            card for card in game.cards
+            if card.pair_id != first_card.pair_id
+            and card is not first_wrong_pair
+        )
+        game.handle_click(first_card.rect.center)
+        game.handle_click(second_wrong_pair.rect.center)
+
+        assert manager.data["attempts"][-1]["repeated_tile_count"] == 1
+        assert calculate_repeated_tile_metrics(manager.data)[
+            "repeated_tile_misses"
+        ] == 1
+
+    def test_session_saves_patient_profile_photo_and_telemetry(self, tmp_path):
+        import pygame
+
+        manager = SessionManager()
+        manager.root = tmp_path / "sessions"
+        manager.root.mkdir()
+        photo_source = tmp_path / "patient.png"
+        pygame.image.save(pygame.Surface((32, 32)), photo_source)
+
+        participant = {
+            "name": "Test Patient",
+            "age": "76",
+            "gender": "Female",
+            "previous_medical_history": "Hypertension",
+        }
+        manager.start(
+            participant,
+            ["pairs"],
+            "Easy",
+            photo_path=photo_source,
+        )
+        manager.record_round_telemetry(
+            "pairs",
+            1,
+            {"Mean_Reaction_Time_ms": 1250.0, "Error_Rate": 0.1},
+        )
+
+        record = manager.list_sessions()[0]
+        saved_photo = manager.photo_path_for(record)
+        assert saved_photo is not None and saved_photo.is_file()
+        assert record["participant"]["name"] == "Test Patient"
+        assert record["participant"]["age"] == "76"
+        assert record["participant"]["gender"] == "Female"
+        assert record["participant"]["previous_medical_history"] == "Hypertension"
+        assert record["rounds"][0]["telemetry"]["Mean_Reaction_Time_ms"] == 1250.0
+        assert participant.get("photo_file") is None
+
+        no_photo_manager = SessionManager()
+        no_photo_manager.root = tmp_path / "sessions_without_photo"
+        no_photo_manager.root.mkdir()
+        no_photo_manager.start(participant, ["pairs"], "Easy")
+        no_photo_record = no_photo_manager.list_sessions()[0]
+        assert "photo_file" not in no_photo_record["participant"]
+        assert no_photo_manager.photo_path_for(no_photo_record) is None
+
+    def test_medical_history_tag_opens_its_session_telemetry(self, tmp_path):
+        from frontend.game import CognitiveMemoryGame
+
+        game = CognitiveMemoryGame(
+            headless=True,
+            enable_mesa_coupling=False,
+            log_filepath=str(tmp_path / "tag_click.csv"),
+        )
+        record = {
+            "session_id": "selected-patient",
+            "participant": {
+                "name": "Selected Patient",
+                "previous_medical_history": "Asthma",
+            },
+            "rounds": [{"telemetry": {"Mean_Reaction_Time_ms": 1400.0}}],
+        }
+        game.phase = "sessions"
+        game.session_records = [record]
+
+        assert game._handle_section_click((200, 175))
+        assert game.phase == "session_detail"
+        assert game.selected_session is record
+        assert game.selected_session["rounds"][0]["telemetry"][
+            "Mean_Reaction_Time_ms"
+        ] == 1400.0
+
+    def test_patient_card_and_scrollable_telemetry_render(self, tmp_path, monkeypatch):
+        import pygame
+        from frontend.game import CognitiveMemoryGame
+
+        pygame.font.init()
+        monkeypatch.setattr(pygame.display, "flip", lambda: None)
+        game = CognitiveMemoryGame(
+            headless=True,
+            enable_mesa_coupling=False,
+            log_filepath=str(tmp_path / "patient_card.csv"),
+        )
+        game.screen = pygame.Surface((game.width, game.height))
+        game.font_header = pygame.font.SysFont(None, 30)
+        game.font_sub = pygame.font.SysFont(None, 20)
+        game.font_small = pygame.font.SysFont(None, 14)
+
+        manager = SessionManager()
+        manager.root = tmp_path / "sessions"
+        manager.root.mkdir()
+        photo_path = tmp_path / "patient.png"
+        pygame.image.save(pygame.Surface((32, 32)), photo_path)
+        manager.start(
+            {
+                "name": "Patient",
+                "age": "75",
+                "gender": "Other",
+                "previous_medical_history": "Long medical history " * 20,
+            },
+            ["pairs"],
+            "Easy",
+            photo_path=photo_path,
+        )
+        for round_number in range(12):
+            manager.record_round_telemetry(
+                "pairs", round_number + 1, {"Mean_Reaction_Time_ms": 1200.0}
+            )
+
+        game.session_manager = manager
+        game.session_records = manager.list_sessions()
+        game.phase = "sessions"
+        game._draw_section()
+        assert len(game.session_photo_cache) == 1
+
+        game.selected_session = game.session_records[0]
+        game.phase = "session_detail"
+        game._draw_section()
+        game.session_detail_scroll = 1000
+        game._draw_section()
+        assert game.session_detail_scroll > 0
+
     def test_game_initialization_and_card_clicks(self, tmp_path):
         from frontend.game import CognitiveMemoryGame
         game_log = str(tmp_path / "test_game_init.csv")
         game = CognitiveMemoryGame(headless=True, enable_mesa_coupling=True, initial_grid="3x4", log_filepath=game_log)
+        game._handle_section_click(game.home_buttons[0].center)
+        assert game.phase == "menu"
+        assert game._handle_game_menu_click(game.pair_menu_button.center)
+        assert game.phase == "pairs"
         assert len(game.cards) == 12  # 3x4 = 12 cards (6 pairs)
         assert game.round_number == 1
 
@@ -330,6 +747,60 @@ class TestPygameGameFlow:
         game._on_round_completed()
         assert game.round_completed is True
         assert game.last_clinical_flag != "Awaiting First Assessment"
+
+    def test_testing_session_starts_selected_pairs_game(self, tmp_path):
+        from frontend.game import CognitiveMemoryGame
+
+        game = CognitiveMemoryGame(
+            headless=True,
+            enable_mesa_coupling=False,
+            log_filepath=str(tmp_path / "testing_pairs.csv"),
+        )
+        game.session_manager = SessionManager()
+        game.session_manager.root = tmp_path / "sessions"
+        game.session_manager.root.mkdir()
+
+        game._handle_section_click(game.home_buttons[1].center)
+        assert game.phase == "testing_form"
+        game.testing_fields["Participant name"] = "Test Patient"
+        game.testing_fields["Age"] = "72"
+        game._handle_section_click((400, 630))
+        assert game.phase == "testing_config"
+
+        game._handle_section_click((300, 235))
+        assert game.game_checks[0] is True
+        game._handle_section_click((480, 565))
+
+        assert game.phase == "pairs"
+        assert game.testing_active is True
+        assert game.testing_games == ["pairs"]
+        assert len(game.cards) == 12
+
+    def test_pair_tiles_are_randomized_without_adjacent_matches(self, tmp_path):
+        from frontend.game import CognitiveMemoryGame
+
+        game = CognitiveMemoryGame(
+            headless=True,
+            enable_mesa_coupling=False,
+            log_filepath=str(tmp_path / "pair_layout.csv"),
+        )
+        game._start_pairs_game()
+
+        for round_number, grid_size in enumerate(game.PAIR_ROUND_GRIDS, start=1):
+            game.round_number = round_number
+            game._setup_round()
+            rows, cols = map(int, grid_size.split("x"))
+            pair_ids = [card.pair_id for card in game.cards]
+
+            assert len(pair_ids) == rows * cols
+            assert all(pair_ids.count(pair_id) == 2 for pair_id in set(pair_ids))
+            for row in range(rows):
+                for col in range(cols):
+                    index = row * cols + col
+                    if col + 1 < cols:
+                        assert pair_ids[index] != pair_ids[index + 1]
+                    if row + 1 < rows:
+                        assert pair_ids[index] != pair_ids[index + cols]
 
     def test_game_input_lock_behavior(self, tmp_path):
         """Verifies that is_analyzing_telemetry lock prevents advancing rounds during calibration."""

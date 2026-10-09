@@ -52,24 +52,16 @@ class CognitiveHealthModel(mesa.Model):
         # Instantiate Core Agents
         self.patient = PatientAgent(
             model=self,
-            unique_id=1,
             cdr_level=cdr_level,
             age=patient_age,
             educ=patient_educ,
             calibrated_params=calibrated_params
         )
-        self.screener = ScreenerAgent(model=self, unique_id=2)
+        self.screener = ScreenerAgent(model=self)
         self.adaptive_agent = AdaptiveDifficultyAgent(
             model=self,
-            unique_id=3,
             target_profile=target_profile
         )
-
-        # Register agents in Mesa model (Mesa 3.x AgentSet compatibility)
-        if hasattr(self, "agents") and hasattr(self.agents, "add"):
-            self.agents.add(self.patient)
-            self.agents.add(self.screener)
-            self.agents.add(self.adaptive_agent)
 
         # Place Core Agents on Grid Boundary Cells (Row 5)
         self.grid.place_agent(self.patient, (5, 0))
@@ -125,18 +117,15 @@ class CognitiveHealthModel(mesa.Model):
         if current_coords == target_coords:
             return  # Active board geometry already synchronized
 
-        # 1. Cleanly remove all existing tile agents from grid & model agent set
+        # 1. Cleanly remove existing tiles from the grid and Mesa model
         for pos in list(self.tile_agents.keys()):
             tile = self.tile_agents.pop(pos)
-            if tile.pos is not None and not self.grid.is_cell_empty(pos):
+            if tile.pos is not None:
                 self.grid.remove_agent(tile)
-                tile.pos = None
-            if hasattr(self, "agents") and hasattr(self.agents, "remove") and tile in self.agents:
-                self.agents.remove(tile)
+            tile.remove()
         self.tile_agents.clear()
 
         # 2. Place new tiles for updated grid dimensions
-        tile_id = 100
         for r in range(rows):
             for c in range(cols):
                 pos = (r, c)
@@ -145,14 +134,11 @@ class CognitiveHealthModel(mesa.Model):
                     resident = self.grid.get_cell_list_contents([pos])
                     for a in resident:
                         self.grid.remove_agent(a)
-                        a.pos = None
+                        a.remove()
 
-                tile = TileAgent(model=self, unique_id=tile_id, pos=pos)
-                if hasattr(self, "agents") and hasattr(self.agents, "add"):
-                    self.agents.add(tile)
+                tile = TileAgent(model=self)
                 self.grid.place_agent(tile, pos)
                 self.tile_agents[pos] = tile
-                tile_id += 1
 
     def _sync_spatial_board_grid(self, grid_size: str) -> None:
         """Alias for _update_tile_grid to ensure backwards compatibility."""

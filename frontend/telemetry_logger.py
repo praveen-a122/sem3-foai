@@ -54,6 +54,8 @@ class TelemetryLogger:
         self.match_attempts: int = 0
         self.successful_matches: int = 0
         self.redundant_errors: int = 0
+        self.repeated_tile_misses: int = 0
+        self.last_attempt_repeated_tiles: int = 0
         self.hesitation_count: int = 0
         self.reaction_times_ms: List[float] = []
 
@@ -103,6 +105,8 @@ class TelemetryLogger:
         self.match_attempts = 0
         self.successful_matches = 0
         self.redundant_errors = 0
+        self.repeated_tile_misses = 0
+        self.last_attempt_repeated_tiles = 0
         self.hesitation_count = 0
 
         self._is_timer_paused = False
@@ -169,13 +173,19 @@ class TelemetryLogger:
         """
         self.match_attempts += 1
         is_match = (val1 == val2)
+        repeated_tiles = int(card1_idx in self.seen_cards) + int(
+            card2_idx in self.seen_cards
+        )
+        self.last_attempt_repeated_tiles = 0
 
         if is_match:
             self.successful_matches += 1
             self.revealed_pairs.add(val1)
         else:
+            self.last_attempt_repeated_tiles = repeated_tiles
+            self.repeated_tile_misses += repeated_tiles
             # Check if this error was on cards already seen earlier
-            if card1_idx in self.seen_cards or card2_idx in self.seen_cards:
+            if repeated_tiles:
                 self.redundant_errors += 1
 
         self.seen_cards.add(card1_idx)
@@ -211,6 +221,7 @@ class TelemetryLogger:
             "Total_Pairs": total_pairs,
             "Matches_Found": self.successful_matches,
             "Redundant_Errors": self.redundant_errors,
+            "Repeated_Tile_Misses": self.repeated_tile_misses,
             "Error_Rate": round(error_rate, 4),
             "Efficiency_Ratio": efficiency_ratio,
             "Mean_Reaction_Time_ms": round(mean_rt, 2),
