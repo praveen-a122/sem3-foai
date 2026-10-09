@@ -1,0 +1,9 @@
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = "c:\Users\Praveen\Projects\foai\.venv\Scripts\python.exe"
+$psi.Arguments = "main.py --mode game"
+$psi.WorkingDirectory = "c:\Users\Praveen\Projects\foai"
+$psi.UseShellExecute = $true
+$psi.CreateNoWindow = $false
+$psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Normal
+$proc = [System.Diagnostics.Process]::Start($psi)
+Write-Output "GAME_LAUNCHED_PID=$($proc.Id)"

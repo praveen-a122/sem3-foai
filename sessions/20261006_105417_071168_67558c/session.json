@@ -1,0 +1,564 @@
+{
+  "session_id": "20261006_105417_071168_67558c",
+  "timestamp": "2026-10-06T10:54:17+05:30",
+  "participant": {
+    "name": "Praveen",
+    "age": "19",
+    "previous_medical_history": "ParkinSON",
+    "gender": "ATTACK HELICOPTER"
+  },
+  "allowed_games": [
+    "pairs",
+    "color_pattern",
+    "normal_pattern"
+  ],
+  "difficulty": "Easy",
+  "target_rounds": 3,
+  "status": "in_progress",
+  "attempts": [
+    {
+      "timestamp": "2026-10-06T10:54:18.273+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 1,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:20.425+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 1,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:22.547+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 1,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:54:23.890+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 1,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:26.119+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 1,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:28.279+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 1,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:30.968+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 1,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:33.030+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 1,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:54:33.862+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 1,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:35.997+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 1,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:54:37.152+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 1,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:39.433+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 1,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:54:40.566+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 1,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:43.294+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 1,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:54:44.474+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 1,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:54:46.463+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 2,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:48.512+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 2,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:50.784+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 2,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:52.863+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 2,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:54:53.648+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 2,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:54:55.781+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 2,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:54:58.211+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 2,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:54:59.098+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 2,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:00.990+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 2,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:03.273+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 2,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:55:04.533+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 2,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:06.722+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 2,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:08.840+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 2,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:55:11.120+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 2,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:13.221+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 2,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:55:14.156+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 2,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:55:15.191+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 2,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:55:17.164+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:19.021+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:31.181+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:33.191+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:35.314+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:37.865+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:40.714+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:43.120+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:46.414+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:50.725+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:53.465+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:55.788+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:55:58.585+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:00.906+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:03.174+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:05.961+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 3,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:56:08.597+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:10.981+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:13.630+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:16.724+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:19.388+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 3,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:56:21.208+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:23.785+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:27.335+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:30.507+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 3,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:56:32.639+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:39.282+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:43.265+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 3,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:56:45.678+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:48.105+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 3,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:56:50.632+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 3,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:56:53.461+05:30",
+      "game": "pairs",
+      "success": false,
+      "round": 3,
+      "error": "Pair mismatch"
+    },
+    {
+      "timestamp": "2026-10-06T10:56:56.112+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 3,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:56:58.245+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 3,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:57:00.298+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 3,
+      "error": null
+    },
+    {
+      "timestamp": "2026-10-06T10:57:02.897+05:30",
+      "game": "pairs",
+      "success": true,
+      "round": 3,
+      "error": null
+    }
+  ],
+  "rounds": [
+    {
+      "game": "pairs",
+      "round": 1,
+      "telemetry": {
+        "Session_ID": "SESSION_1791264219",
+        "Round_Number": 1,
+        "Grid_Size": "3x4",
+        "Difficulty_Level": "Gentle / Baseline",
+        "Total_Flips": 30,
+        "Total_Pairs": 6,
+        "Matches_Found": 6,
+        "Redundant_Errors": 6,
+        "Error_Rate": 0.4,
+        "Efficiency_Ratio": 0.4,
+        "Mean_Reaction_Time_ms": 446.59,
+        "Median_Reaction_Time_ms": 417.96,
+        "Std_Reaction_Time_ms": 226.61,
+        "Hesitation_Intervals_Count": 0,
+        "Round_Completion_Time_sec": 27.4,
+        "Timestamp": "2026-10-06 10:54:44"
+      }
+    },
+    {
+      "game": "pairs",
+      "round": 2,
+      "telemetry": {
+        "Session_ID": "SESSION_1791264219",
+        "Round_Number": 2,
+        "Grid_Size": "4x4",
+        "Difficulty_Level": "Gentle / 6 Pairs",
+        "Total_Flips": 34,
+        "Total_Pairs": 8,
+        "Matches_Found": 8,
+        "Redundant_Errors": 6,
+        "Error_Rate": 0.3529,
+        "Efficiency_Ratio": 0.471,
+        "Mean_Reaction_Time_ms": 513.95,
+        "Median_Reaction_Time_ms": 451.43,
+        "Std_Reaction_Time_ms": 341.61,
+        "Hesitation_Intervals_Count": 0,
+        "Round_Completion_Time_sec": 29.98,
+        "Timestamp": "2026-10-06 10:55:15"
+      }
+    },
+    {
+      "game": "pairs",
+      "round": 3,
+      "telemetry": {
+        "Session_ID": "SESSION_1791264219",
+        "Round_Number": 3,
+        "Grid_Size": "4x5",
+        "Difficulty_Level": "Gentle / 6 Pairs",
+        "Total_Flips": 72,
+        "Total_Pairs": 10,
+        "Matches_Found": 10,
+        "Redundant_Errors": 20,
+        "Error_Rate": 0.5556,
+        "Efficiency_Ratio": 0.278,
+        "Mean_Reaction_Time_ms": 1052.68,
+        "Median_Reaction_Time_ms": 998.95,
+        "Std_Reaction_Time_ms": 1194.49,
+        "Hesitation_Intervals_Count": 2,
+        "Round_Completion_Time_sec": 106.84,
+        "Timestamp": "2026-10-06 10:57:02"
+      }
+    }
+  ]
+}
