@@ -208,8 +208,8 @@ class CognitiveMemoryGame:
         self.session_photo_cache: Dict[str, pygame.Surface] = {}
         self.session_detail_scroll = 0
         self.testing_field = 0
-        self.game_names = ["pairs", "color_pattern", "normal_pattern"]
-        self.game_checks = [False, False, False]
+        self.game_names = ["pairs", "color_pattern", "normal_pattern", "stroop"]
+        self.game_checks = [False, False, False, False]
         self.session_records = []
         self.selected_session = None
 
@@ -255,6 +255,27 @@ class CognitiveMemoryGame:
 
         self.pattern_click_animations: Dict[int, float] = {}
 
+        # Stroop colour-word game
+        self.stroop_colors = [
+            ("RED", (235, 60, 60)),
+            ("GREEN", (60, 200, 90)),
+            ("BLUE", (80, 150, 255)),
+            ("YELLOW", (245, 220, 60)),
+            ("ORANGE", (250, 140, 40)),
+            ("PURPLE", (190, 100, 230)),
+        ]
+        self.stroop_buttons = [
+            pygame.Rect(80 + col * 275, 460 + row * 90, 250, 70)
+            for row in range(2)
+            for col in range(3)
+        ]
+        self.max_stroop_levels = 10
+        self.stroop_congruent_levels = 2   # first levels: word matches its ink
+        self.stroop_level = 1
+        self.stroop_word = 0
+        self.stroop_ink = 0
+        self.stroop_message = ""
+
         # Normal Flashing Pattern: unnumbered, uniform-grey 3x3 grid.
         self.normal_pattern_cells = [
             pygame.Rect(330 + col * 105, 190 + row * 105, 90, 90)
@@ -283,6 +304,7 @@ class CognitiveMemoryGame:
         self.pair_menu_button = pygame.Rect(270, 320, 420, 72)
         self.pattern_menu_button = pygame.Rect(270, 420, 420, 72)
         self.normal_pattern_menu_button = pygame.Rect(270, 520, 420, 72)
+        self.stroop_menu_button = pygame.Rect(270, 620, 420, 72)
         self.menu_button = pygame.Rect(20, 20, 150, 48)
         self.home_buttons = [
             pygame.Rect(270, 270, 420, 72),
@@ -308,6 +330,7 @@ class CognitiveMemoryGame:
             self.font_card = pygame.font.SysFont(FONT_FAMILY, FONT_SIZES["CARD_SYMBOL"], bold=True)
             self.font_metrics = pygame.font.SysFont(FONT_FAMILY, FONT_SIZES["METRICS"])
             self.font_small = pygame.font.SysFont(FONT_FAMILY, 14, bold=True)
+            self.font_stroop = pygame.font.SysFont(FONT_FAMILY, 96, bold=True)
 
         self._setup_round()
 
@@ -644,6 +667,65 @@ class CognitiveMemoryGame:
         )
         self._replay_pattern()
 
+    # ------------------------------------------------------------------
+    # Stroop colour-word game
+    # ------------------------------------------------------------------
+    def _new_stroop_trial(self):
+        """Pick a new colour word + ink colour (never the same pair twice in a row)."""
+        count = len(self.stroop_colors)
+        previous = (self.stroop_word, self.stroop_ink)
+        while True:
+            word = random.randrange(count)
+            if self.stroop_level <= self.stroop_congruent_levels:
+                ink = word
+            else:
+                ink = random.choice([i for i in range(count) if i != word])
+            if (word, ink) != previous:
+                break
+        self.stroop_word = word
+        self.stroop_ink = ink
+
+    def _start_stroop_game(self):
+        self.phase = "stroop"
+        self.stroop_level = 1
+        self.stroop_message = "Pick the colour of the ink"
+        self._new_stroop_trial()
+
+    def _handle_stroop_click(self, pos: Tuple[int, int]):
+        for index, rect in enumerate(self.stroop_buttons):
+            if not rect.collidepoint(pos):
+                continue
+
+            correct = index == self.stroop_ink
+            if self.testing_active:
+                if correct:
+                    error = None
+                elif index == self.stroop_word:
+                    error = "Chose the word's meaning instead of the ink colour"
+                else:
+                    error = "Wrong ink colour"
+                self.session_manager.record(
+                    "stroop", correct, round_number=self.stroop_level, error=error
+                )
+
+            if not correct:
+                self.stroop_message = "Not quite — check the ink"
+                self._new_stroop_trial()
+                return
+
+            if self.stroop_level >= self.max_stroop_levels:
+                self.stroop_message = f"You completed all {self.max_stroop_levels} levels!"
+                if self.testing_active:
+                    self._finish_testing_game()
+                else:
+                    self.phase = "stroop_complete"
+                return
+
+            self.stroop_level += 1
+            self.stroop_message = "Correct!"
+            self._new_stroop_trial()
+            return
+
     def _draw_glass_button(self, rect, label, font):
         glass = pygame.Surface(rect.size, pygame.SRCALPHA)
         glass.fill((75, 91, 62, 220))
@@ -695,6 +777,9 @@ class CognitiveMemoryGame:
             )
             self._draw_glass_button(
                 self.normal_pattern_menu_button, "Normal Flashing Pattern", self.font_sub
+            )
+            self._draw_glass_button(
+                self.stroop_menu_button, "Stroop Colour Test", self.font_sub
             )
             pygame.display.flip()
             return
@@ -796,6 +881,43 @@ class CognitiveMemoryGame:
                 self._draw_glass_button(
                     self.pattern_replay_button, "Replay", self.font_small
                 )
+
+            pygame.display.flip()
+            return
+
+        if self.phase in ("stroop", "stroop_complete"):
+            self._draw_glass_button(self.menu_button, "Game Menu", self.font_small)
+            title = self.font_header.render("Stroop Colour Test", True, COLORS["TEXT_LIGHT"])
+            self.screen.blit(title, title.get_rect(center=(self.width // 2, 65)))
+            status = self.font_sub.render(
+                f"Level {self.stroop_level}/{self.max_stroop_levels}  |  {self.stroop_message}",
+                True, COLORS["TEXT_MUTED"],
+            )
+            self.screen.blit(status, status.get_rect(center=(self.width // 2, 145)))
+
+            if self.phase == "stroop":
+                hint = self.font_sub.render(
+                    "Click the COLOUR the word is printed in — not what it says",
+                    True, COLORS["TEXT_LIGHT"],
+                )
+                self.screen.blit(hint, hint.get_rect(center=(self.width // 2, 205)))
+
+                panel = pygame.Rect(180, 245, 600, 160)
+                pygame.draw.rect(self.screen, COLORS["PANEL_BG"], panel, border_radius=16)
+                pygame.draw.rect(self.screen, COLORS["BORDER_DEFAULT"], panel, 3, border_radius=16)
+                word_text = self.stroop_colors[self.stroop_word][0]
+                ink_color = self.stroop_colors[self.stroop_ink][1]
+                word_surf = self.font_stroop.render(word_text, True, ink_color)
+                self.screen.blit(word_surf, word_surf.get_rect(center=panel.center))
+
+                for (name, _), rect in zip(self.stroop_colors, self.stroop_buttons):
+                    self._draw_glass_button(rect, name, self.font_sub)
+            else:
+                done = self.font_sub.render(
+                    f"You completed all {self.max_stroop_levels} levels!",
+                    True, COLORS["SUCCESS_GREEN"],
+                )
+                self.screen.blit(done, done.get_rect(center=(480, 400)))
 
             pygame.display.flip()
             return
@@ -934,8 +1056,8 @@ class CognitiveMemoryGame:
             title = self.font_header.render("Testing Setup", True, COLORS["TEXT_LIGHT"])
             self.screen.blit(title, title.get_rect(center=(480, 145)))
             labels = ("Find the Pairs", "Flashing Pattern Colours",
-                      "Normal Flashing Pattern")
-            for i, (label, y) in enumerate(zip(labels, (220, 275, 330))):
+                      "Normal Flashing Pattern", "Stroop Colour Test")
+            for i, (label, y) in enumerate(zip(labels, (205, 255, 305, 355))):
                 mark = "[x]" if self.game_checks[i] else "[ ]"
                 text = self.font_sub.render(f"{mark}  {label}", True, COLORS["TEXT_LIGHT"])
                 self.screen.blit(text, text.get_rect(center=(480, y + 20)))
@@ -1006,7 +1128,7 @@ class CognitiveMemoryGame:
                 )
 
                 attempts = record.get("attempts", [])
-                for game_index, game_name in enumerate(record.get("allowed_games", [])[:3]):
+                for game_index, game_name in enumerate(record.get("allowed_games", [])[:4]):
                     game_attempts = [
                         attempt for attempt in attempts
                         if attempt.get("game") == game_name
@@ -1023,7 +1145,7 @@ class CognitiveMemoryGame:
                         True,
                         COLORS["TEXT_LIGHT"],
                     )
-                    self.screen.blit(game_line, (text_x + 4, y + 55 + game_index * 16))
+                    self.screen.blit(game_line, (text_x + 4, y + 53 + game_index * 13))
 
         elif self.phase == "session_detail":
             record = self.selected_session
@@ -1273,7 +1395,7 @@ class CognitiveMemoryGame:
             return True
 
         if self.phase == "testing_config":
-            for i, y in enumerate((220, 275, 330)):
+            for i, y in enumerate((205, 255, 305, 355)):
                 if pygame.Rect(250, y, 460, 45).collidepoint(pos):
                     self.game_checks[i] = not self.game_checks[i]
                     return True
@@ -1334,6 +1456,10 @@ class CognitiveMemoryGame:
         if self.normal_pattern_menu_button.collidepoint(pos):
             if not self.testing_active or "normal_pattern" in self.testing_games:
                 self._start_normal_pattern_game()
+            return True
+        if self.stroop_menu_button.collidepoint(pos):
+            if not self.testing_active or "stroop" in self.testing_games:
+                self._start_stroop_game()
             return True
         return False
 
@@ -1501,6 +1627,9 @@ class CognitiveMemoryGame:
         if name == "pairs":
             self.max_pair_rounds = rounds
             self._start_pairs_game()
+        elif name == "stroop":
+            self.max_stroop_levels = rounds
+            self._start_stroop_game()
         else:
             self.max_pattern_levels = rounds
             if name == "color_pattern":
@@ -1559,6 +1688,11 @@ class CognitiveMemoryGame:
                                 self._replay_pattern()
                             else:
                                 self._handle_pattern_click(event.pos)
+                    elif self.phase in ("stroop", "stroop_complete"):
+                        if self.menu_button.collidepoint(event.pos):
+                            self._return_to_menu()
+                        elif self.phase == "stroop":
+                            self._handle_stroop_click(event.pos)
                     elif self.phase == "pair_complete":
                         if self.menu_button.collidepoint(event.pos):
                             self._return_to_menu()
@@ -1578,6 +1712,9 @@ class CognitiveMemoryGame:
                         if self.pattern_input:
                             self.pattern_input.pop()
                     elif event.key == pygame.K_ESCAPE:
+                        self._return_to_menu()
+                elif event.type == pygame.KEYDOWN and self.phase == "stroop":
+                    if event.key == pygame.K_ESCAPE:
                         self._return_to_menu()
 
             self.draw()
