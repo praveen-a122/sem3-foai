@@ -13,6 +13,8 @@ Tracks:
 - Per-round completion time, total flips, and error rates
 - Real-time serialization to `data/session_logs.csv`
 - Pause / resume latency tracking to exclude non-interactive animation delays.
+- Stroop colour-word game: per-level tries, fails, word-reading errors,
+  reaction times and completion time, serialized to `data/stroop_logs.csv`.
 """
 
 import os
@@ -29,12 +31,34 @@ class TelemetryLogger:
 
     HESITATION_THRESHOLD_MS = 3000.0  # Pauses > 3s indicate cognitive hesitation (Torabgar et al., 2025)
 
+    STROOP_HEADERS = [
+        "Session_ID",
+        "Level",
+        "Word",
+        "Ink_Colour",
+        "Tries",
+        "Fails",
+        "Word_Reading_Errors",
+        "Error_Rate",
+        "Mean_Reaction_Time_ms",
+        "Median_Reaction_Time_ms",
+        "Std_Reaction_Time_ms",
+        "Hesitation_Intervals_Count",
+        "Round_Completion_Time_sec",
+        "Timestamp",
+    ]
+
     def __init__(self, log_filepath: Optional[str] = None):
         if log_filepath is None:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             log_filepath = os.path.join(base_dir, "data", "session_logs.csv")
         self.log_filepath = log_filepath
+        # Stroop results go to their own CSV (different columns) in the same folder.
+        self.stroop_log_filepath = os.path.join(
+            os.path.dirname(self.log_filepath), "stroop_logs.csv"
+        )
         self._ensure_csv_headers()
+        self._ensure_stroop_csv_headers()
 
         # Session state
         self.session_id: str = f"SESSION_{int(time.time())}"
@@ -63,6 +87,18 @@ class TelemetryLogger:
         self._is_timer_paused: bool = False
         self._pause_start_timestamp: float = 0.0
 
+        # Stroop level tracking
+        self.stroop_level: int = 0
+        self.stroop_word: str = ""
+        self.stroop_ink: str = ""
+        self.stroop_level_start: float = 0.0
+        self.stroop_trial_start: float = 0.0
+        self.stroop_tries: int = 0
+        self.stroop_fails: int = 0
+        self.stroop_word_errors: int = 0
+        self.stroop_hesitations: int = 0
+        self.stroop_reaction_times_ms: List[float] = []
+
     def _ensure_csv_headers(self) -> None:
         """Creates the session_logs.csv file with headers if it does not already exist."""
         os.makedirs(os.path.dirname(self.log_filepath), exist_ok=True)
@@ -87,6 +123,16 @@ class TelemetryLogger:
             with open(self.log_filepath, mode="w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow(headers)
+
+    def _ensure_stroop_csv_headers(self) -> None:
+        """Creates stroop_logs.csv with headers if it does not already exist."""
+        os.makedirs(os.path.dirname(self.stroop_log_filepath), exist_ok=True)
+        if (
+            not os.path.exists(self.stroop_log_filepath)
+            or os.path.getsize(self.stroop_log_filepath) == 0
+        ):
+            with open(self.stroop_log_filepath, mode="w", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerow(self.STROOP_HEADERS)
 
     def start_round(self, round_num: int, grid_size: str = "3x4", difficulty: str = "Medium") -> None:
         """Initializes state tracking for a new round."""
@@ -254,3 +300,82 @@ class TelemetryLogger:
             ])
 
         return round_summary
+
+    # ------------------------------------------------------------------
+    # Stroop colour-word game telemetry
+    # ------------------------------------------------------------------
+    def start_stroop_level(self, level: int, word: str, ink: str) -> None:
+        """Begin tracking a Stroop level (called once per level, not on retries)."""
+        now = time.perf_counter()
+        self.stroop_level = level
+        self.stroop_word = word
+        self.stroop_ink = ink
+        self.stroop_level_start = now
+        self.stroop_trial_start = now
+        self.stroop_tries = 0
+        self.stroop_fails = 0
+        self.stroop_word_errors = 0
+        self.stroop_hesitations = 0
+        self.stroop_reaction_times_ms.clear()
+
+    def record_stroop_attempt(self, correct: bool, chose_word: bool = False) -> float:
+        """
+        Record one click on a Stroop level.
+        `chose_word` is True when the player picked the button named after the
+        printed word (reading the word instead of naming the ink). It only counts
+        as a word-reading error when the answer was wrong.
+        Returns the reaction time in milliseconds (word shown -> click).
+        """
+        now = time.perf_counter()
+        rt_ms = max(0.0, (now - self.stroop_trial_start) * 1000.0)
+
+        self.stroop_tries += 1
+        self.stroop_reaction_times_ms.append(rt_ms)
+        if rt_ms >= self.HESITATION_THRESHOLD_MS:
+            self.stroop_hesitations += 1
+        if not correct:
+            self.stroop_fails += 1
+            if chose_word:
+                self.stroop_word_errors += 1
+
+        # The next attempt on this level (after a wrong answer) is timed from now.
+        self.stroop_trial_start = now
+        return rt_ms
+
+    def complete_stroop_level(self) -> Dict[str, Any]:
+        """
+        Finalize the Stroop level, append a row to stroop_logs.csv and return
+        the summary (also stored in the saved session by the game).
+        """
+        now = time.perf_counter()
+        completion_time_sec = now - self.stroop_level_start
+
+        rts = self.stroop_reaction_times_ms or [0.0]
+        n = len(rts)
+        mean_rt = sum(rts) / n
+        sorted_rt = sorted(rts)
+        median_rt = sorted_rt[n // 2] if n % 2 != 0 else (sorted_rt[n // 2 - 1] + sorted_rt[n // 2]) / 2.0
+        std_rt = (sum((x - mean_rt) ** 2 for x in rts) / n) ** 0.5
+        error_rate = self.stroop_fails / max(1, self.stroop_tries)
+
+        summary = {
+            "Session_ID": self.session_id,
+            "Level": self.stroop_level,
+            "Word": self.stroop_word,
+            "Ink_Colour": self.stroop_ink,
+            "Tries": self.stroop_tries,
+            "Fails": self.stroop_fails,
+            "Word_Reading_Errors": self.stroop_word_errors,
+            "Error_Rate": round(error_rate, 4),
+            "Mean_Reaction_Time_ms": round(mean_rt, 2),
+            "Median_Reaction_Time_ms": round(median_rt, 2),
+            "Std_Reaction_Time_ms": round(std_rt, 2),
+            "Hesitation_Intervals_Count": self.stroop_hesitations,
+            "Round_Completion_Time_sec": round(completion_time_sec, 2),
+            "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+        with open(self.stroop_log_filepath, mode="a", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow([summary[h] for h in self.STROOP_HEADERS])
+
+        return summary

@@ -275,6 +275,15 @@ class CognitiveMemoryGame:
         self.stroop_word = 0
         self.stroop_ink = 0
         self.stroop_message = ""
+        self.stroop_schedule: List[Tuple[int, int]] = []
+        self.stroop_button_order = list(range(len(self.stroop_colors)))
+        self.stroop_button_fill = [1, 2, 3, 4, 5, 0]
+        self.stroop_correct_pos = -1
+        # Stroop telemetry
+        self.stroop_tries_total = 0
+        self.stroop_fails_total = 0
+        self.stroop_game_start = 0.0
+        self.stroop_final_time = 0.0
 
         # Normal Flashing Pattern: unnumbered, uniform-grey 3x3 grid.
         self.normal_pattern_cells = [
@@ -670,37 +679,119 @@ class CognitiveMemoryGame:
     # ------------------------------------------------------------------
     # Stroop colour-word game
     # ------------------------------------------------------------------
-    def _new_stroop_trial(self):
-        """Pick a new colour word + ink colour (never the same pair twice in a row)."""
-        count = len(self.stroop_colors)
-        previous = (self.stroop_word, self.stroop_ink)
+    @staticmethod
+    def _random_derangement(n: int) -> List[int]:
+        """Random permutation of 0..n-1 where no value stays in its own position."""
         while True:
-            word = random.randrange(count)
-            if self.stroop_level <= self.stroop_congruent_levels:
-                ink = word
-            else:
-                ink = random.choice([i for i in range(count) if i != word])
-            if (word, ink) != previous:
+            perm = list(range(n))
+            random.shuffle(perm)
+            if all(perm[i] != i for i in range(n)):
+                return perm
+
+    def _build_stroop_schedule(self, levels: int) -> List[Tuple[int, int]]:
+        """
+        Pre-plan one (word, ink) pair per level so that:
+        - no word and no ink colour is used more than `cap` times (2 for 10 levels),
+        - no (word, ink) pair repeats,
+        - the same word / ink never appears on two levels in a row (when possible).
+        The first levels are congruent (word matches its ink) as an easy warm-up.
+        """
+        count = len(self.stroop_colors)
+        cap = max(2, -(-levels // count))
+        failures = 0
+        while True:
+            word_counts = [0] * count
+            ink_counts = [0] * count
+            used = set()
+            schedule: List[Tuple[int, int]] = []
+            for level in range(1, levels + 1):
+                congruent = level <= self.stroop_congruent_levels
+                options = [
+                    (w, i)
+                    for w in range(count)
+                    for i in range(count)
+                    if (w == i) == congruent
+                    and word_counts[w] < cap
+                    and ink_counts[i] < cap
+                    and (w, i) not in used
+                ]
+                if schedule:
+                    prev_w, prev_i = schedule[-1]
+                    spaced = [p for p in options if p[0] != prev_w and p[1] != prev_i]
+                    options = spaced or options
+                if not options:
+                    break
+                w, i = random.choice(options)
+                schedule.append((w, i))
+                word_counts[w] += 1
+                ink_counts[i] += 1
+                used.add((w, i))
+            if len(schedule) == levels:
+                return schedule
+            failures += 1
+            if failures % 50 == 0:
+                cap += 1  # safety valve only; normally never reached
+
+    def _begin_stroop_level(self):
+        """Start telemetry logging for the current level."""
+        word, ink = self.stroop_schedule[self.stroop_level - 1]
+        self.logger.start_stroop_level(
+            self.stroop_level,
+            self.stroop_colors[word][0],
+            self.stroop_colors[ink][0],
+        )
+
+    def _new_stroop_trial(self):
+        """Show the current level's word and re-shuffle / re-colour the answer buttons."""
+        self.stroop_word, self.stroop_ink = self.stroop_schedule[self.stroop_level - 1]
+        count = len(self.stroop_colors)
+
+        # Random button positions; the correct button never stays in the same spot.
+        order = list(range(count))
+        while True:
+            random.shuffle(order)
+            if order.index(self.stroop_ink) != self.stroop_correct_pos:
                 break
-        self.stroop_word = word
-        self.stroop_ink = ink
+        self.stroop_button_order = order
+        self.stroop_correct_pos = order.index(self.stroop_ink)
+
+        # Every button is filled with a colour different from the name written on it.
+        self.stroop_button_fill = self._random_derangement(count)
 
     def _start_stroop_game(self):
         self.phase = "stroop"
         self.stroop_level = 1
         self.stroop_message = "Pick the colour of the ink"
+        self.stroop_schedule = self._build_stroop_schedule(self.max_stroop_levels)
+        self.stroop_correct_pos = -1
+        self.stroop_tries_total = 0
+        self.stroop_fails_total = 0
+        self.stroop_game_start = time.time()
+        self.stroop_final_time = 0.0
+        self._begin_stroop_level()
         self._new_stroop_trial()
 
     def _handle_stroop_click(self, pos: Tuple[int, int]):
-        for index, rect in enumerate(self.stroop_buttons):
+        for position, rect in enumerate(self.stroop_buttons):
             if not rect.collidepoint(pos):
                 continue
 
-            correct = index == self.stroop_ink
+            now = time.time()
+            chosen = self.stroop_button_order[position]
+            correct = chosen == self.stroop_ink
+
+            # Telemetry: tries, fails, reaction time (saved to data/stroop_logs.csv)
+            self.stroop_tries_total += 1
+            if not correct:
+                self.stroop_fails_total += 1
+            self.logger.record_stroop_attempt(
+                correct, chose_word=(chosen == self.stroop_word)
+            )
+
             if self.testing_active:
                 if correct:
                     error = None
-                elif index == self.stroop_word:
+                elif chosen == self.stroop_word:
                     error = "Chose the word's meaning instead of the ink colour"
                 else:
                     error = "Wrong ink colour"
@@ -710,10 +801,17 @@ class CognitiveMemoryGame:
 
             if not correct:
                 self.stroop_message = "Not quite — check the ink"
-                self._new_stroop_trial()
+                self._new_stroop_trial()  # same word, new button layout
                 return
 
+            level_summary = self.logger.complete_stroop_level()
+            if self.testing_active:
+                self.session_manager.record_round_telemetry(
+                    "stroop", self.stroop_level, level_summary
+                )
+
             if self.stroop_level >= self.max_stroop_levels:
+                self.stroop_final_time = now - self.stroop_game_start
                 self.stroop_message = f"You completed all {self.max_stroop_levels} levels!"
                 if self.testing_active:
                     self._finish_testing_game()
@@ -723,6 +821,7 @@ class CognitiveMemoryGame:
 
             self.stroop_level += 1
             self.stroop_message = "Correct!"
+            self._begin_stroop_level()
             self._new_stroop_trial()
             return
 
@@ -897,10 +996,15 @@ class CognitiveMemoryGame:
 
             if self.phase == "stroop":
                 hint = self.font_sub.render(
-                    "Click the COLOUR the word is printed in — not what it says",
+                    "Click the button NAMED after the word's ink colour",
                     True, COLORS["TEXT_LIGHT"],
                 )
-                self.screen.blit(hint, hint.get_rect(center=(self.width // 2, 205)))
+                self.screen.blit(hint, hint.get_rect(center=(self.width // 2, 200)))
+                note = self.font_small.render(
+                    "Ignore what the word says and ignore the button colours",
+                    True, COLORS["TEXT_MUTED"],
+                )
+                self.screen.blit(note, note.get_rect(center=(self.width // 2, 228)))
 
                 panel = pygame.Rect(180, 245, 600, 160)
                 pygame.draw.rect(self.screen, COLORS["PANEL_BG"], panel, border_radius=16)
@@ -910,14 +1014,50 @@ class CognitiveMemoryGame:
                 word_surf = self.font_stroop.render(word_text, True, ink_color)
                 self.screen.blit(word_surf, word_surf.get_rect(center=panel.center))
 
-                for (name, _), rect in zip(self.stroop_colors, self.stroop_buttons):
-                    self._draw_glass_button(rect, name, self.font_sub)
+                # Answer buttons: shuffled positions, each filled with a colour
+                # that differs from the name written on it.
+                for position, rect in enumerate(self.stroop_buttons):
+                    colour_index = self.stroop_button_order[position]
+                    name = self.stroop_colors[colour_index][0]
+                    fill = self.stroop_colors[self.stroop_button_fill[colour_index]][1]
+                    pygame.draw.rect(self.screen, fill, rect, border_radius=14)
+                    pygame.draw.rect(
+                        self.screen, COLORS["TEXT_LIGHT"], rect, width=3, border_radius=14
+                    )
+                    luminance = 0.299 * fill[0] + 0.587 * fill[1] + 0.114 * fill[2]
+                    text_color = (20, 20, 20) if luminance > 140 else (255, 255, 255)
+                    label = self.font_sub.render(name, True, text_color)
+                    self.screen.blit(label, label.get_rect(center=rect.center))
+
+                # Live telemetry
+                elapsed = time.time() - self.stroop_game_start
+                live = self.font_small.render(
+                    f"Tries: {self.stroop_tries_total}  |  Fails: {self.stroop_fails_total}  |  "
+                    f"Time: {elapsed:.1f} s",
+                    True, COLORS["TEXT_MUTED"],
+                )
+                self.screen.blit(live, live.get_rect(center=(self.width // 2, 672)))
             else:
+                tries = self.stroop_tries_total
+                fails = self.stroop_fails_total
+                accuracy = 100.0 * (tries - fails) / tries if tries else 0.0
+                average = self.stroop_final_time / max(1, self.max_stroop_levels)
                 done = self.font_sub.render(
                     f"You completed all {self.max_stroop_levels} levels!",
                     True, COLORS["SUCCESS_GREEN"],
                 )
-                self.screen.blit(done, done.get_rect(center=(480, 400)))
+                self.screen.blit(done, done.get_rect(center=(480, 320)))
+                line1 = self.font_sub.render(
+                    f"Tries: {tries}   Fails: {fails}   Accuracy: {accuracy:.0f}%",
+                    True, COLORS["TEXT_LIGHT"],
+                )
+                self.screen.blit(line1, line1.get_rect(center=(480, 390)))
+                line2 = self.font_sub.render(
+                    f"Total time: {self.stroop_final_time:.1f} s   "
+                    f"Average per level: {average:.1f} s",
+                    True, COLORS["TEXT_LIGHT"],
+                )
+                self.screen.blit(line2, line2.get_rect(center=(480, 435)))
 
             pygame.display.flip()
             return
@@ -1293,6 +1433,18 @@ class CognitiveMemoryGame:
                         f'RT: {telemetry.get("Mean_Reaction_Time_ms", "N/A")} ms | '
                         f'Time: {telemetry.get("Round_Completion_Time_sec", "N/A")} s'
                     )
+                    if item.get("game") == "stroop":
+                        line1 = (
+                            f'stroop | Level {item.get("round", "")} | '
+                            f'Tries: {telemetry.get("Tries", "N/A")} | '
+                            f'Fails: {telemetry.get("Fails", "N/A")} | '
+                            f'Word-reading errors: {telemetry.get("Word_Reading_Errors", "N/A")}'
+                        )
+                        line2 = (
+                            f'Error rate: {telemetry.get("Error_Rate", "N/A")} | '
+                            f'RT: {telemetry.get("Mean_Reaction_Time_ms", "N/A")} ms | '
+                            f'Level time: {telemetry.get("Round_Completion_Time_sec", "N/A")} s'
+                        )
                     y = telemetry_top + 38 + i * 48 - scroll_offset
                     self.screen.blit(
                         self.font_small.render(line1, True, COLORS["TEXT_LIGHT"]),
