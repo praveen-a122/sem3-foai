@@ -94,14 +94,28 @@ class CognitiveHealthModel(mesa.Model):
             model_reporters={
                 "Round": lambda m: m.current_round,
                 "Grid_Size": lambda m: m.adaptive_agent.get_current_grid(),
-                "Predicted_MMSE": lambda m: m.screener.predicted_mmse,
-                "CSI": lambda m: m.screener.cognitive_state_index,
+                "Predicted_MMSE": lambda m: (
+                    None if m.latest_assessment.get("Assessment_Method") == "task_specific_heuristic"
+                    else m.screener.predicted_mmse
+                ),
+                "CSI": lambda m: (
+                    None if m.latest_assessment.get("Assessment_Method") == "task_specific_heuristic"
+                    else m.screener.cognitive_state_index
+                ),
+                "Task_Performance_Score": lambda m: m.latest_assessment.get("Task_Performance_Score"),
+                "Cognitive_Domain": lambda m: m.latest_assessment.get("Cognitive_Domain", ""),
                 "Patient_Fatigue": lambda m: m.patient.fatigue_level,
                 "Patient_Anxiety": lambda m: m.patient.anxiety_index,
                 "Patient_Dropped_Out": lambda m: m.patient.dropout,
-                "Mean_RT_ms": lambda m: m.patient.last_round_telemetry.get("Mean_Reaction_time_ms", 0.0),
-                "Error_Rate": lambda m: m.patient.last_round_telemetry.get("Error_Rate", 0.0),
-                "Hesitations": lambda m: m.patient.last_round_telemetry.get("Hesitation_Intervals_Count", 0),
+                "Mean_RT_ms": lambda m: m.latest_telemetry.get(
+                    "Mean_Reaction_Time_ms", m.latest_telemetry.get("mean_reaction_time_ms", 0.0)
+                ),
+                "Error_Rate": lambda m: m.latest_telemetry.get(
+                    "Error_Rate", m.latest_telemetry.get("error_rate", 0.0)
+                ),
+                "Hesitations": lambda m: m.latest_telemetry.get(
+                    "Hesitation_Intervals_Count", m.latest_telemetry.get("hesitation_count", 0)
+                ),
                 "Session_ID": lambda m: getattr(m, "session_id", "N/A")
             }
         )
@@ -226,6 +240,31 @@ class CognitiveHealthModel(mesa.Model):
             "reason": self.latest_dda_action["reason"],
             "micro_break": self.latest_dda_action.get("micro_break_recommended", False)
         }
+
+    def process_task_result(self, telemetry: Dict[str, Any]) -> Dict[str, Any]:
+        """Run one real Electron game result through the Mesa agent loop.
+
+        Unlike the Pygame memory-board hook, this method accepts task-tagged
+        telemetry from any of the four game mechanics. The screener uses the
+        appropriate task rubric and the DDA agent tunes that game's next level.
+        """
+        self.current_round += 1
+        self.latest_telemetry = dict(telemetry)
+
+        # The order matters: assess this exact human result before adapting.
+        self.screener.step()
+        self.adaptive_agent.step()
+        self._sync_spatial_state()
+        self.datacollector.collect(self)
+
+        step_record = {
+            "round": self.current_round,
+            "telemetry": self.latest_telemetry,
+            "assessment": self.latest_assessment,
+            "dda_action": self.latest_dda_action,
+        }
+        self.history_records.append(step_record)
+        return step_record
 
     def get_simulation_dataframe(self) -> pd.DataFrame:
         """Returns collected simulation history as a pandas DataFrame."""

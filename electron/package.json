@@ -1,0 +1,16 @@
+{
+  "name": "mindspring-cognitive-games",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Accessible cognitive game suite with a local Mesa multi-agent analysis service.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "ensure-electron": "node ensure-electron.js",
+    "prestart": "npm run ensure-electron",
+    "check": "node --check main.js && node --check preload.js && node --check renderer.js && node --check ensure-electron.js"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0"
+  }
+}

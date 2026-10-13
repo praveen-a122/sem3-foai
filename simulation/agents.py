@@ -285,7 +285,12 @@ class ScreenerAgent(mesa.Agent):
         patient_age: int = 75,
         patient_educ: int = 3,
     ) -> Dict[str, Any]:
-        """Assess telemetry with ML when usable, otherwise use the heuristic."""
+        """Assess a legacy Pairs round or a task-aware Electron round."""
+        if telemetry.get("game") in self.TASK_DOMAINS:
+            return self.evaluate_task_telemetry(
+                telemetry, patient_age=patient_age, patient_educ=patient_educ
+            )
+
         if telemetry.get("status") == "dropped_out" or telemetry.get("Dropped_Out", False):
             self.clinical_flag = "Assessment Incomplete (High Fatigue/Dropout)"
             return {
@@ -404,6 +409,161 @@ class ScreenerAgent(mesa.Agent):
         self.session_history.append(assessment_record)
         return assessment_record
 
+    TASK_DOMAINS = {
+        "pairs": "Associative visual memory",
+        "color_pattern": "Visual sequence memory",
+        "normal_pattern": "Spatial sequence memory",
+        "stroop": "Selective attention and inhibition",
+    }
+
+    TASK_BASELINE_RT_MS = {
+        "pairs": 1800.0,
+        "color_pattern": 1400.0,
+        "normal_pattern": 1600.0,
+        "stroop": 1000.0,
+    }
+
+    @staticmethod
+    def _bounded_number(value: Any, minimum: float, maximum: float, default: float) -> float:
+        """Convert untrusted gameplay input to a finite number in a safe range."""
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return default
+        if not np.isfinite(number):
+            return default
+        return float(np.clip(number, minimum, maximum))
+
+    def evaluate_task_telemetry(
+        self,
+        telemetry: Dict[str, Any],
+        patient_age: int = 75,
+        patient_educ: int = 3,
+    ) -> Dict[str, Any]:
+        """Score one of the four game types using the metrics that fit its rules.
+
+        The Electron games report attempts, correctness, reaction time, and
+        hesitation counts. These are intentionally assessed with a transparent
+        task rubric rather than applying the Pairs-trained classifier to
+        unlike tasks.
+        """
+        game = str(telemetry.get("game", "pairs"))
+        domain = self.TASK_DOMAINS[game]
+        attempts = max(1, int(self._bounded_number(
+            telemetry.get("attempts", telemetry.get("Total_Flips", 1)), 1, 100000, 1
+        )))
+        incorrect = int(self._bounded_number(
+            telemetry.get("incorrect_attempts", telemetry.get("Redundant_Errors", 0)),
+            0, attempts, 0
+        ))
+        correct = int(self._bounded_number(
+            telemetry.get("correct_attempts", max(0, attempts - incorrect)),
+            0, attempts, max(0, attempts - incorrect)
+        ))
+        # A task result may supply raw counts or accuracy. Prefer counts so
+        # failed retries are not hidden by a successful final response.
+        if "correct_attempts" not in telemetry and "incorrect_attempts" not in telemetry:
+            supplied_accuracy = telemetry.get("accuracy")
+            if supplied_accuracy is not None:
+                accuracy = self._bounded_number(supplied_accuracy, 0.0, 1.0, 0.0)
+            else:
+                accuracy = correct / max(1, correct + incorrect)
+        else:
+            accuracy = correct / max(1, correct + incorrect)
+
+        rt_ms = self._bounded_number(
+            telemetry.get("mean_reaction_time_ms", telemetry.get("Mean_Reaction_Time_ms", 0.0)),
+            0.0, 60000.0, 0.0
+        )
+        hesitation_count = int(self._bounded_number(
+            telemetry.get("hesitation_count", telemetry.get("Hesitation_Intervals_Count", 0)),
+            0, 100000, 0
+        ))
+        sequence_length = int(self._bounded_number(
+            telemetry.get("sequence_length", 0), 0, 100, 0
+        ))
+        matches_found = int(self._bounded_number(
+            telemetry.get("matches_found", telemetry.get("Matches_Found", 0)), 0, 1000, 0
+        ))
+        total_pairs = int(self._bounded_number(
+            telemetry.get("total_pairs", telemetry.get("Total_Pairs", 0)), 0, 1000, 0
+        ))
+        word_reading_errors = int(self._bounded_number(
+            telemetry.get("word_reading_errors", 0), 0, attempts, 0
+        ))
+        difficulty_level = int(self._bounded_number(
+            telemetry.get("difficulty_level", 1), 1, 3, 1
+        ))
+
+        baseline_rt = self.TASK_BASELINE_RT_MS[game]
+        speed_score = float(np.clip(1.0 - max(0.0, rt_ms - baseline_rt) / (2.0 * baseline_rt), 0.0, 1.0))
+        hesitation_rate = hesitation_count / max(1, attempts)
+        hesitation_penalty = min(0.12, hesitation_rate * 0.08)
+        if game == "stroop":
+            # The word can conflict with the ink. Count word-driven slips as
+            # a separate inhibition signal instead of treating all mistakes alike.
+            inhibition_accuracy = float(np.clip(
+                1.0 - (word_reading_errors / max(1, attempts)), 0.0, 1.0
+            ))
+            performance = float(np.clip(
+                (0.65 * accuracy) + (0.25 * speed_score)
+                + (0.10 * inhibition_accuracy) - hesitation_penalty,
+                0.0, 1.0
+            ))
+        else:
+            inhibition_accuracy = None
+            performance = float(np.clip(
+                (0.75 * accuracy) + (0.25 * speed_score) - hesitation_penalty,
+                0.0, 1.0
+            ))
+        previous_domain_scores = [
+            record["Task_Performance_Score"]
+            for record in self.session_history
+            if record.get("Cognitive_Domain") == domain
+            and "Task_Performance_Score" in record
+        ]
+        composite_values = [
+            record["Task_Performance_Score"]
+            for record in self.session_history
+            if "Task_Performance_Score" in record
+        ] + [performance * 100.0]
+        composite_score = round(float(np.mean(composite_values)), 1)
+        score = round(performance * 100.0, 1)
+        accuracy_percent = round(accuracy * 100.0, 1)
+
+        assessment_record = {
+            "Round": len(self.session_history) + 1,
+            "Game": game,
+            "Cognitive_Domain": domain,
+            "Task_Performance_Score": score,
+            "Task_Accuracy_Percent": accuracy_percent,
+            "Mean_RT_ms": round(rt_ms, 2),
+            "Hesitation_Count": hesitation_count,
+            "Attempt_Count": attempts,
+            "Correct_Attempts": correct,
+            "Incorrect_Attempts": incorrect,
+            "Difficulty_Level": difficulty_level,
+            "Sequence_Length": sequence_length if sequence_length else None,
+            "Matches_Found": matches_found if game == "pairs" else None,
+            "Total_Pairs": total_pairs if game == "pairs" else None,
+            "Word_Reading_Errors": word_reading_errors if game == "stroop" else None,
+            "Inhibition_Accuracy_Percent": (
+                round(inhibition_accuracy * 100.0, 1) if inhibition_accuracy is not None else None
+            ),
+            "Composite_Task_Score": composite_score,
+            "Prior_Domain_Rounds": len(previous_domain_scores),
+            "Assessment_Method": "task_specific_heuristic",
+            "Clinical_Flag": "Task performance only; not a diagnosis",
+            "ML_Used": False,
+            "ML_Model_Ready": self.ml_trained,
+        }
+        self.session_history.append(assessment_record)
+        self.latest_assessment = assessment_record
+        # Do not convert these game scores into an MMSE estimate or clinical
+        # confidence: this task rubric has not been clinically validated.
+        self.confidence_score = 0.0
+        return assessment_record
+
 
 class AdaptiveDifficultyAgent(mesa.Agent):
     """
@@ -432,6 +592,15 @@ class AdaptiveDifficultyAgent(mesa.Agent):
         self.difficulty_name: str = "Gentle / Baseline"
 
         self.recent_performance: List[float] = []
+        self.task_levels: Dict[str, int] = {
+            "pairs": 1,
+            "color_pattern": 1,
+            "normal_pattern": 1,
+            "stroop": 1,
+        }
+        self.task_performance_history: Dict[str, List[float]] = {
+            game: [] for game in self.task_levels
+        }
         self.last_adjustment_reason: str = "Initial Baseline Established"
         self.needs_micro_break: bool = False
         self.latest_dda_action: Dict[str, Any] = {
@@ -462,7 +631,12 @@ class AdaptiveDifficultyAgent(mesa.Agent):
 
         if telemetry:
             if getattr(self.model, "enable_adaptive_dda", True):
-                self.latest_dda_action = self.evaluate_and_adapt(telemetry, assessment or {})
+                if telemetry.get("game") in self.task_levels:
+                    self.latest_dda_action = self.evaluate_task_and_adapt(
+                        telemetry, assessment or {}
+                    )
+                else:
+                    self.latest_dda_action = self.evaluate_and_adapt(telemetry, assessment or {})
                 if hasattr(self.model, "patient"):
                     self.model.patient.apply_adaptive_feedback(
                         difficulty_adapted=self.latest_dda_action["adapted"],
@@ -573,6 +747,81 @@ class AdaptiveDifficultyAgent(mesa.Agent):
             "moving_avg_p": round(moving_avg_p, 3),
             "micro_break_recommended": self.needs_micro_break
         }
+
+    def evaluate_task_and_adapt(
+        self,
+        telemetry: Dict[str, Any],
+        assessment: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Adjust the selected game's difficulty using its own measured outcomes."""
+        game = str(telemetry.get("game", "pairs"))
+        if game not in self.task_levels:
+            return self.latest_dda_action
+
+        current_level = self.task_levels[game]
+        max_level = 3
+        raw_accuracy_percent = assessment.get("Task_Accuracy_Percent")
+        if raw_accuracy_percent is None:
+            raw_accuracy_percent = 100.0 * ScreenerAgent._bounded_number(
+                telemetry.get("accuracy", 0.0), 0.0, 1.0, 0.0
+            )
+        accuracy = ScreenerAgent._bounded_number(
+            raw_accuracy_percent, 0.0, 100.0, 0.0
+        ) / 100.0
+        error_rate = ScreenerAgent._bounded_number(
+            telemetry.get("error_rate", telemetry.get("Error_Rate", 1.0 - accuracy)),
+            0.0, 1.0, 1.0 - accuracy
+        )
+        rt_ms = ScreenerAgent._bounded_number(
+            telemetry.get("mean_reaction_time_ms", telemetry.get("Mean_Reaction_Time_ms", 0.0)),
+            0.0, 60000.0, 0.0
+        )
+        baseline_rt = ScreenerAgent.TASK_BASELINE_RT_MS.get(game, 1500.0)
+        history = self.task_performance_history[game]
+        history.append(accuracy)
+        if len(history) > 4:
+            history.pop(0)
+        moving_accuracy = float(np.mean(history))
+
+        old_level = current_level
+        reason = "Performance is within the current challenge range."
+        micro_break = False
+        if error_rate >= 0.40 or accuracy < 0.60 or rt_ms > baseline_rt * 2.5:
+            if current_level > 1:
+                current_level -= 1
+                reason = "Difficulty eased after repeated errors or slower responses."
+            else:
+                reason = "Keeping the easiest setting and encouraging a short pause."
+            micro_break = (error_rate >= 0.55 or rt_ms > baseline_rt * 3.0)
+        elif len(history) >= 2 and moving_accuracy >= 0.88 and error_rate <= 0.15 and rt_ms <= baseline_rt * 1.35:
+            if current_level < max_level:
+                current_level += 1
+                reason = "Difficulty increased after consistently accurate, timely responses."
+            else:
+                reason = "Strong performance at the highest available setting."
+
+        self.task_levels[game] = current_level
+        grid = self.GRID_LEVELS[current_level - 1]
+        exposure = self.EXPOSURE_LEVELS[current_level - 1]
+        adapted = current_level != old_level
+        action = {
+            "task": game,
+            "adapted": adapted,
+            "current_difficulty_level": old_level,
+            "next_difficulty_level": current_level,
+            "grid_size": grid,
+            "exposure_time_sec": exposure,
+            "difficulty_name": ["Gentle", "Steady", "Challenge"][current_level - 1],
+            "reason": reason,
+            "performance_index": round(ScreenerAgent._bounded_number(
+                assessment.get("Task_Performance_Score", accuracy * 100.0), 0.0, 100.0,
+                accuracy * 100.0
+            ) / 100.0, 3),
+            "moving_avg_p": round(moving_accuracy, 3),
+            "micro_break_recommended": micro_break,
+        }
+        self.latest_dda_action = action
+        return action
 
     def get_current_grid(self) -> str:
         return self.GRID_LEVELS[self.current_grid_idx]

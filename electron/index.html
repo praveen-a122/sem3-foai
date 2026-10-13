@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src http://127.0.0.1:8765;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#10131d">
+  <title>MindSpring | Cognitive Games</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <div class="app-frame">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div>
+          <div class="brand-name">mindspring<span>.</span></div>
+          <div class="brand-caption">PLAY · NOTICE · GROW</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="privacy-indicator"><span class="privacy-dot"></span> Runs on this device</div>
+        <button class="icon-button quit-button" id="quitSession" type="button" aria-label="Leave session" title="Leave session">×</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="screen welcome-screen" id="welcomeScreen">
+        <div class="welcome-copy">
+          <div class="eyebrow"><span class="eyebrow-line"></span> A LITTLE WORKOUT FOR YOUR MIND</div>
+          <h1>Curiosity is<br><span>your superpower.</span></h1>
+          <p class="lead">Four short games. A few patterns to spot. One chance to learn more about how you play, at your own pace.</p>
+          <div class="welcome-meta">
+            <div class="meta-item"><span class="meta-icon">◷</span><span><b>8–12 min</b><small>Estimated session</small></span></div>
+            <div class="meta-item"><span class="meta-icon">⌁</span><span><b>4 mini-games</b><small>Memory & attention</small></span></div>
+            <div class="meta-item"><span class="meta-icon">⌂</span><span><b>Private by design</b><small>Saved locally</small></span></div>
+          </div>
+        </div>
+
+        <div class="welcome-panel glass-panel">
+          <div class="panel-overline">BEFORE WE BEGIN</div>
+          <h2>Make yourself comfortable.</h2>
+          <p class="panel-description">There’s no pass or fail here. Just play naturally, and take a break whenever you need one.</p>
+          <form id="startForm">
+            <label for="participantCode">Participant code <span class="field-note">Optional</span></label>
+            <input id="participantCode" name="participantCode" maxlength="40" autocomplete="off" placeholder="e.g. P-014 or leave blank">
+            <label for="participantAge">Age <span class="field-note">Optional</span></label>
+            <input id="participantAge" name="participantAge" type="number" min="18" max="110" inputmode="numeric" placeholder="Enter age">
+            <label class="consent-row"><input id="consentBox" type="checkbox" required><span>I understand this is a game-based project, not a medical test or diagnosis.</span></label>
+            <button class="primary-button start-button" id="startButton" type="submit"><span>Let’s play</span><span class="button-arrow">↗</span></button>
+            <div class="form-error" id="startError" role="alert"></div>
+          </form>
+          <div class="panel-footnote"><span class="shield-icon">◇</span> Your session is stored locally on this computer.</div>
+        </div>
+      </section>
+
+      <section class="screen play-screen hidden" id="gameScreen">
+        <aside class="session-rail">
+          <div class="rail-heading">YOUR SESSION</div>
+          <div class="rail-progress"><span id="railProgressFill"></span></div>
+          <div class="rail-progress-label"><span id="railProgressText">0 of 4 games</span><span id="railPercent">0%</span></div>
+          <div class="task-nav" id="taskNav">
+            <div class="task-nav-item current" data-task="pairs"><span class="task-nav-symbol">▦</span><span><b>Find the pairs</b><small>Visual memory</small></span><span class="nav-state">1</span></div>
+            <div class="task-nav-item" data-task="color_pattern"><span class="task-nav-symbol">✳</span><span><b>Color sequence</b><small>Pattern recall</small></span><span class="nav-state">2</span></div>
+            <div class="task-nav-item" data-task="normal_pattern"><span class="task-nav-symbol">⌗</span><span><b>Spatial sequence</b><small>Location memory</small></span><span class="nav-state">3</span></div>
+            <div class="task-nav-item" data-task="stroop"><span class="task-nav-symbol">Aa</span><span><b>Color & word</b><small>Focus & inhibition</small></span><span class="nav-state">4</span></div>
+          </div>
+          <div class="rail-tip"><span class="tip-spark">✦</span><b>Little reminder</b><p>There's no need to rush. Accuracy comes first, and pauses are okay.</p></div>
+          <div class="rail-bottom"><span class="privacy-dot"></span> Local session <span class="rail-separator">·</span> <span id="sessionShortId">Ready</span></div>
+        </aside>
+
+        <div class="game-column">
+          <div class="game-headline">
+            <div>
+              <div class="eyebrow compact-eyebrow"><span class="eyebrow-line"></span><span id="gameKicker">GAME 01 / 04</span></div>
+              <h2 id="gameTitle">Find the pairs</h2>
+              <p id="gameSubtitle">Find two matching cards. The board is yours to explore.</p>
+            </div>
+            <div class="difficulty-pill"><span class="difficulty-dot"></span><span id="difficultyLabel">Gentle level</span></div>
+          </div>
+          <div class="game-stage glass-panel" id="gameMount" aria-live="polite"></div>
+          <div class="game-footer"><span><span class="footer-spark">✦</span> MindSpring · built for calm focus</span><span>Press <kbd>Esc</kbd> to pause / resume <span class="footer-separator">·</span> <kbd>F11</kbd> full screen</span></div>
+        </div>
+      </section>
+
+      <section class="screen results-screen hidden" id="resultsScreen">
+        <div class="results-heading">
+          <div class="eyebrow"><span class="eyebrow-line"></span> SESSION COMPLETE</div>
+          <h1>Look what you<br><span>figured out.</span></h1>
+          <p class="lead">Every round is a clue about how you approached the games today. Here’s your play profile.</p>
+        </div>
+        <div class="results-overview glass-panel">
+          <div class="results-orbit"><div class="orbit-ring"></div><div class="orbit-center"><strong id="overallScore">--</strong><span>PLAY SCORE</span></div></div>
+          <div class="overview-copy"><div class="panel-overline">YOUR SESSION SNAPSHOT</div><h2 id="resultsGreeting">Nice work showing up.</h2><p id="resultsSubcopy">You completed a set of memory and attention games.</p><div class="overview-stats"><div><strong id="roundsCount">0</strong><span>Rounds played</span></div><div><strong id="gamesCount">0 / 4</strong><span>Games explored</span></div></div></div>
+        </div>
+        <div class="profile-heading"><div><div class="panel-overline">YOUR GAME PROFILE</div><h2>Different games, different skills.</h2></div><span class="profile-hint">Task scores, not a diagnosis</span></div>
+        <div class="profile-grid" id="profileGrid"></div>
+        <div class="results-note"><span class="note-icon">ⓘ</span><p id="resultsNote">These scores reflect performance in these games only. They cannot confirm or rule out a cognitive or medical condition. If memory or attention is a concern, discuss it with a qualified healthcare professional.</p></div>
+        <div class="results-actions"><button class="secondary-button" id="exportResults" type="button">Export session summary <span>↓</span></button><button class="primary-button" id="restartSession" type="button">Start a new session <span class="button-arrow">↗</span></button></div>
+      </section>
+    </main>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="pause-overlay hidden" id="pauseOverlay"><div class="pause-card glass-panel"><div class="pause-symbol">Ⅱ</div><div class="panel-overline">TAKE YOUR TIME</div><h2>Paused for a moment.</h2><p>Nothing is being timed while the game is paused.</p><button class="primary-button" id="resumeButton" type="button">I’m ready <span class="button-arrow">↗</span></button></div></div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

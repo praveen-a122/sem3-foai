@@ -1,0 +1,9 @@
+# Python runtime and test caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Electron dependency downloads and local participant sessions
+electron/node_modules/
+electron_sessions/
