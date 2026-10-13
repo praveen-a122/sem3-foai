@@ -20,7 +20,7 @@ from mesa.space import SingleGrid
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, Optional, List, Tuple
-from .agents import PatientAgent, ScreenerAgent, AdaptiveDifficultyAgent, TileAgent
+from .agents import (PatientAgent, ScreenerAgent, AdaptiveDifficultyAgent, TileAgent, MemoryAnalysisAgent, AttentionAnalysisAgent)
 
 
 class CognitiveHealthModel(mesa.Model):
@@ -58,10 +58,13 @@ class CognitiveHealthModel(mesa.Model):
             calibrated_params=calibrated_params
         )
         self.screener = ScreenerAgent(model=self)
+        self.memory_agent = MemoryAnalysisAgent(model=self)
+        self.attention_agent = AttentionAnalysisAgent(model=self)
         self.adaptive_agent = AdaptiveDifficultyAgent(
             model=self,
             target_profile=target_profile
         )
+        self.agent_decision_history: List[Dict[str, Any]] = []
 
         # Place Core Agents on Grid Boundary Cells (Row 5)
         self.grid.place_agent(self.patient, (5, 0))
@@ -182,6 +185,8 @@ class CognitiveHealthModel(mesa.Model):
         # Native Mesa Agent Turn Stepping
         self.patient.step()
         self.screener.step()
+        self.memory_agent.step()
+        self.attention_agent.step()
         self.adaptive_agent.step()
 
         # Synchronize 2D SingleGrid environment
@@ -217,6 +222,8 @@ class CognitiveHealthModel(mesa.Model):
 
         # Step screener and adaptive agents with real human telemetry
         self.screener.step()
+        self.memory_agent.step()
+        self.attention_agent.step()
         self.adaptive_agent.step()
 
         # Synchronize spatial state and record metrics
@@ -245,7 +252,7 @@ class CognitiveHealthModel(mesa.Model):
         """Run one real Electron game result through the Mesa agent loop.
 
         Unlike the Pygame memory-board hook, this method accepts task-tagged
-        telemetry from any of the four game mechanics. The screener uses the
+        telemetry from all eight Electron task mechanics. The screener uses the
         appropriate task rubric and the DDA agent tunes that game's next level.
         """
         self.current_round += 1
@@ -253,18 +260,111 @@ class CognitiveHealthModel(mesa.Model):
 
         # The order matters: assess this exact human result before adapting.
         self.screener.step()
+        self.memory_agent.step()
+        self.attention_agent.step()
         self.adaptive_agent.step()
         self._sync_spatial_state()
         self.datacollector.collect(self)
+
+        agent_decisions = {
+            "screener": dict(self.screener.latest_decision),
+            "memory": dict(self.memory_agent.latest_analysis),
+            "attention": dict(self.attention_agent.latest_analysis),
+            "adaptive": {
+                "agent": "AdaptiveDifficultyAgent",
+                "decision": "change_difficulty" if self.latest_dda_action.get("adapted") else "hold_or_boundary",
+                "explanation": self.latest_dda_action.get("reason", "No decision recorded."),
+                "metrics_used": self.latest_dda_action.get("metrics_used", []),
+                "decision_factors": self.latest_dda_action.get("decision_factors", []),
+            },
+        }
+        record = {
+            "round": self.current_round,
+            "game": self.latest_telemetry.get("game", "legacy_simulation"),
+            "agent_decisions": agent_decisions,
+            "assessment": dict(self.latest_assessment),
+            "dda_action": dict(self.latest_dda_action),
+        }
+        self.agent_decision_history.append(record)
+        self.agent_decision_history = self.agent_decision_history[-60:]
 
         step_record = {
             "round": self.current_round,
             "telemetry": self.latest_telemetry,
             "assessment": self.latest_assessment,
             "dda_action": self.latest_dda_action,
+            "agent_decisions": agent_decisions,
         }
         self.history_records.append(step_record)
         return step_record
+
+    def get_agent_debug_state(self) -> Dict[str, Any]:
+        """Return a developer-friendly snapshot of live Mesa agents and their decisions."""
+        last_telemetry = self.latest_telemetry or {}
+        adaptive_history = self.adaptive_agent.task_decision_history[-12:]
+        return {
+            "current_round": self.current_round,
+            "current_game": last_telemetry.get("game", "None yet"),
+            "agents": [
+                {
+                    "name": "ScreenerAgent",
+                    "role": "Converts task telemetry into a transparent task-specific score, uncertainty estimate and explanation.",
+                    "mode": "task-specific heuristic; no clinical probability",
+                    "state": {
+                        "latest_score": self.screener.latest_assessment.get("Task_Performance_Score"),
+                        "latest_domain": self.screener.latest_assessment.get("Cognitive_Domain"),
+                        "evidence_confidence": self.screener.latest_assessment.get("Evidence_Confidence"),
+                        "uncertainty_95pct_points": self.screener.latest_assessment.get("Uncertainty_95pct_Points"),
+                        "practice_exposure_count": self.screener.latest_assessment.get("Practice_Exposure_Count"),
+                        "latest_decision": self.screener.latest_decision,
+                    },
+                    "history": self.screener.session_history[-8:],
+                },
+                {
+                    "name": "MemoryAnalysisAgent",
+                    "role": "Interprets recall, sequence span, pair learning and immediate-to-delayed retention metrics.",
+                    "mode": "active for pairs, sequences and delayed recall",
+                    "state": self.memory_agent.latest_analysis,
+                    "history": self.memory_agent.history[-8:],
+                },
+                {
+                    "name": "AttentionAnalysisAgent",
+                    "role": "Tracks response consistency, inhibition slips, false starts, omissions and commission errors.",
+                    "mode": "active for Stroop and Reflex Lab tasks",
+                    "state": self.attention_agent.latest_analysis,
+                    "history": self.attention_agent.history[-8:],
+                },
+                {
+                    "name": "AdaptiveDifficultyAgent",
+                    "role": "Adjusts each task independently using performance, uncertainty, practice trend and task-specific parameters.",
+                    "mode": "active",
+                    "state": {
+                        "task_levels": dict(self.adaptive_agent.task_levels),
+                        "task_performance_history": {
+                            key: value[-8:] for key, value in self.adaptive_agent.task_performance_history.items()
+                        },
+                        "latest_action": self.latest_dda_action,
+                    },
+                    "history": adaptive_history,
+                },
+                {
+                    "name": "PatientAgent",
+                    "role": "Synthetic participant used by the legacy simulation/evaluation path. It does not simulate the real Electron participant.",
+                    "mode": "simulation only in Electron sessions",
+                    "state": {"fatigue_level": self.patient.fatigue_level, "anxiety_index": self.patient.anxiety_index,
+                              "dropout": self.patient.dropout, "age_profile": self.patient.age},
+                    "history": [],
+                },
+                {
+                    "name": "TileAgent",
+                    "role": "Represents cells in the legacy Pygame/Mesa spatial board; Electron board rendering runs in JavaScript.",
+                    "mode": "legacy board representation",
+                    "state": {"tile_count": len(self.tile_agents), "board_shape": "3x4 legacy default"},
+                    "history": [],
+                },
+            ],
+            "decision_history": self.agent_decision_history[-20:],
+        }
 
     def get_simulation_dataframe(self) -> pd.DataFrame:
         """Returns collected simulation history as a pandas DataFrame."""

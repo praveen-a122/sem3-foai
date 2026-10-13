@@ -269,12 +269,12 @@ class TestMesaMultiAgentSpatialClosedLoop:
         """Ensures resizing from 3x4 to 4x4 and back cleanly removes tiles without OccupiedError."""
         model = CognitiveHealthModel()
         assert len(model.tile_agents) == 12
-        assert len(model.agents) == 15
+        assert len(model.agents) == 17
 
         # Resize up to 4x4 (16 tiles)
         model._update_tile_grid("4x4")
         assert len(model.tile_agents) == 16
-        assert len(model.agents) == 19
+        assert len(model.agents) == 21
         for r in range(4):
             for c in range(4):
                 assert not model.grid.is_cell_empty((r, c))
@@ -282,7 +282,7 @@ class TestMesaMultiAgentSpatialClosedLoop:
         # Resize down to 3x4 (12 tiles) - verify row 3 is cleanly evacuated
         model._update_tile_grid("3x4")
         assert len(model.tile_agents) == 12
-        assert len(model.agents) == 15
+        assert len(model.agents) == 17
         assert len({agent.unique_id for agent in model.agents}) == len(model.agents)
         for c in range(4):
             # Row 3 must be empty now

@@ -1,6 +1,6 @@
 # MindSpring · Fundamentals of AI Project
 
-A four-game cognitive gameplay project for **22AIE201 Fundamentals of AI**. The repository includes the original Pygame interface, Mesa agent-based model, OASIS calibration and evaluation pipeline, plus a new fullscreen Electron UI.
+An eight-task cognitive gameplay project for **22AIE201 Fundamentals of AI**. The repository includes the original Pygame interface, Mesa agent-based model, OASIS calibration and evaluation pipeline, plus a new fullscreen Electron UI.
 
 ## Run the Electron experience
 
@@ -8,7 +8,7 @@ A four-game cognitive gameplay project for **22AIE201 Fundamentals of AI**. The 
 2. Install the UI dependency once: `cd electron && npm install`
 3. Start the app from the project root with `run_electron.bat` (Windows), or run `npm start` inside `electron/`.
 
-The Electron app starts a local Python service that routes gameplay telemetry through Mesa's `ScreenerAgent` and `AdaptiveDifficultyAgent`. Read [ELECTRON_GUIDE.md](ELECTRON_GUIDE.md) for setup, game-specific metrics, and the analysis limitations.
+The Electron app starts a local Python service that routes trial-level gameplay telemetry through Mesa's `ScreenerAgent`, `MemoryAnalysisAgent`, `AttentionAnalysisAgent`, and `AdaptiveDifficultyAgent`. Use the **Agent lab** button inside the app to inspect agent state and decision history. Read [ELECTRON_GUIDE.md](ELECTRON_GUIDE.md) for setup and [MINDSPRING_AGENT_LAB_GUIDE.md](MINDSPRING_AGENT_LAB_GUIDE.md) for agent logic, task metrics, and the adaptive-versus-fixed experiment.
 
 ## Original Pygame / research pipeline
 

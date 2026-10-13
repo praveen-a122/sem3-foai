@@ -1,6 +1,6 @@
 # MindSpring Electron UI
 
-The original Pygame app remains in place. MindSpring is an additional fullscreen Electron UI that plays the same four task types and sends each round's raw gameplay telemetry to the existing Mesa model.
+The original Pygame app remains in place. MindSpring is an additional fullscreen Electron UI with eight task types. It sends task-specific telemetry and a bounded set of trial records to the Mesa model.
 
 ## First-time setup (Windows)
 
@@ -57,18 +57,42 @@ Install the requirements into a virtual environment, run `npm install` in `elect
 
 ## How the analysis works
 
+The Electron experience now includes eight tasks:
+
 - **Find the pairs:** card-pair attempts, matches, errors, response latency, and hesitation intervals.
 - **Color sequence:** sequence submissions, wrong sequences/retries, input latency, and sequence length.
-- **Spatial sequence:** sequence submissions, wrong locations/order, input latency, board size, and sequence length.
-- **Color & word:** ink-color responses, retries, word-reading slips, and response latency.
+- **Spatial sequence:** sequence submissions, wrong locations/order, input latency, and sequence length. The game grid remains 3×3.
+- **Color & word (Stroop):** ink-colour responses, retries, word-reading slips, and response latency.
+- **Reflex Lab: simple reaction:** randomized cue timing, trial-by-trial reaction times, false starts, omissions, median response time and variability.
+- **Reflex Lab: choice reaction:** symbol discrimination with 2–4 choice options, trial-by-trial timing, and choice errors.
+- **Reflex Lab: Go/No-Go:** trial-by-trial timing, false starts, missed Go targets and commission errors for responding to No-Go cues.
+- **Delayed recall:** a study phase, immediate free recall, a distraction interval, delayed free recall, and recognition trials that record hits, misses, false alarms and correct rejections. The user's typed recall text is not saved; only counts are retained.
 
-`ScreenerAgent` uses a task-aware, transparent heuristic for these Electron tasks. It deliberately does **not** apply the Pairs-trained clinical classifier to sequence or Stroop data. Pair matching is evaluated with match efficiency, retries, and timing; both sequence games retain sequence length and wrong-submission counts; Stroop also counts errors made by choosing the printed word instead of its ink color.
+### Mesa agents
 
-For pair/sequence tasks, the project play score combines 75% accuracy and 25% baseline-adjusted response speed, with a small hesitation penalty. Stroop allocates 65% to response accuracy, 25% to speed, and 10% to the separate word-reading/inhibition measure. These weights are an engineering rubric, not published clinical norms.
+The app's **Agent lab** button opens a developer panel showing each agent's current state, role, metrics, explanations, and recent history. The API endpoint `GET /api/agents/state` returns this same snapshot. The panel automatically refreshes after a round when it is open.
 
-`AdaptiveDifficultyAgent` keeps a separate level (1–3) and recent accuracy history for each game. It eases a task when accuracy drops below 60%, the error rate reaches 40%, or responses are very slow. It raises difficulty only after at least two recent samples show high accuracy (88% or better), few errors (15% or less), and timely responses. Especially difficult rounds can trigger a gentle break suggestion. The thresholds are easy-to-read project settings, not calibrated medical cutoffs. `CognitiveHealthModel.process_task_result()` coordinates the Mesa assessment, adaptation, spatial representation, history, and data collection.
+- **`ScreenerAgent`** computes a task-specific play score and shows its component scores, weights, metrics used, evidence sample count, uncertainty estimate, quality flags, and possible practice adjustment. It does not produce diagnostic probabilities in the Electron path.
+- **`MemoryAnalysisAgent`** summarizes pair/sequence results and the difference between immediate recall, delayed recall, and recognition. Its delayed-retention signal can inform adaptive difficulty.
+- **`AttentionAnalysisAgent`** summarizes response variability, false starts, omissions, commission errors and Stroop word-reading slips. Its Go/No-Go commission-error signal can inform adaptive difficulty.
+- **`AdaptiveDifficultyAgent`** owns a separate level and settings for each game, records before/after parameters and the reason for each decision, discounts score gains that may be due to practice at the same level, and holds a level if one small sample is too uncertain to justify changing it.
+- **`PatientAgent`** remains a simulated participant for the legacy Mesa simulation. It is not a model of the actual Electron player. **`TileAgent`** remains part of the legacy board model; Electron renders its boards in JavaScript.
 
-The app reports a **game performance score**, not MMSE, a diagnosis, or a validated clinical risk classification. These scores cannot confirm or rule out cognitive impairment and need independent validation before any real-world screening use. Session JSON is saved locally under `electron_sessions/`; the existing Pygame logs and session files are left alone.
+Each score is a readable engineering heuristic, not a calibrated clinical norm. The confidence and uncertainty summaries describe how much task evidence was available; they are not probabilities that somebody has a disease. See [MINDSPRING_AGENT_LAB_GUIDE.md](MINDSPRING_AGENT_LAB_GUIDE.md) for the agent flow and decisions in more detail.
+
+### Difficulty logic and experiment
+
+The task-specific parameters differ by game: pair-board size, sequence flash/gap timing, Stroop conflict frequency, Reflex Lab response windows/options/No-Go frequency, and delayed-recall list size/study/delay duration. Difficulty changes are recorded with the metrics used and a plain-language explanation. Promotion requires repeated good performance at one level and sufficiently precise evidence; a low-confidence result normally triggers another observation instead of a fast adjustment.
+
+To compare a simple synthetic adaptive policy with fixed-level testing, run from the project root:
+
+```powershell
+python evaluation/compare_adaptive_fixed.py
+```
+
+The script writes `evaluation/adaptive_vs_fixed_results.json`. It uses synthetic participants and toy response curves only; it is an engineering experiment and must not be interpreted as a clinical validation result. Its results should guide further tuning rather than being presented as proof that adaptive testing is always more efficient.
+
+MindSpring's overall profile and individual scores describe gameplay performance only. They cannot confirm or rule out cognitive impairment or any medical condition. Proper screening research would require appropriate reference groups, participant-level and external validation, calibration, fairness checks, consent, privacy review and ethics approval.
 
 ## Controls
 

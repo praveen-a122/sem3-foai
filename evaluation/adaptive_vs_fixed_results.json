@@ -1,0 +1,29 @@
+{
+  "experiment": "synthetic adaptive versus fixed cognitive-task testing",
+  "seed": 20261013,
+  "simulation_only": true,
+  "clinical_validity_claim": false,
+  "model_note": "Toy response curves and simulated participants only; results do not imply performance on real people or disease detection.",
+  "methods": [
+    {
+      "method": "adaptive",
+      "participants": 600,
+      "trials_per_person": 24,
+      "ability_classification_accuracy_percent": 84.83,
+      "mean_final_normalized_entropy": 0.3803,
+      "median_trials_to_75pct_posterior": 17,
+      "participants_reaching_75pct_posterior_percent": 86.5,
+      "mean_level_used": 1.297
+    },
+    {
+      "method": "fixed_level_2",
+      "participants": 600,
+      "trials_per_person": 24,
+      "ability_classification_accuracy_percent": 91.17,
+      "mean_final_normalized_entropy": 0.2066,
+      "median_trials_to_75pct_posterior": 6,
+      "participants_reaching_75pct_posterior_percent": 99.5,
+      "mean_level_used": 2
+    }
+  ]
+}
