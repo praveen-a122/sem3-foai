@@ -790,13 +790,13 @@ function startSequenceRound(game, round) {
   const pads = Array.from({ length: optionCount }, (_, index) => {
     const label = game === 'color_pattern' ? palette[index].name : `Tile ${index + 1}`;
     const padStyle = game === 'color_pattern'
-      ? `background:${palette[index].hex};--pad-glow:${palette[index].glow};${index >= 4 ? `grid-column:${index - 2};` : ''}`
+      ? `background:${palette[index].hex};--pad-glow:${palette[index].glow};`
       : 'background:linear-gradient(145deg,rgba(122,143,178,.36),rgba(67,80,113,.55));--pad-glow:rgba(142,229,225,.45);';
     return `<button class="sequence-pad" type="button" data-index="${index}" aria-label="${label}" style="${padStyle}" disabled><span class="pad-number">${game === 'color_pattern' ? '' : String(index + 1).padStart(2, '0')}</span></button>`;
   }).join('');
   const sequenceDots = Array.from({ length: sequenceLength }, () => '<span class="sequence-dot"></span>').join('');
   el('gameMount').innerHTML = `${stageHead(`LEVEL ${round} OF ${SEQUENCE_ROUNDS}`, game === 'color_pattern' ? 'Watch the color sequence, then tap each color in the same order.' : 'Watch the 3 × 3 grid light up, then tap the same tiles in order.', sequenceLength, 'Steps', '0', 'Recalled')}
-    <div class="sequence-layout"><div class="sequence-grid" id="sequenceGrid" style="grid-template-columns:repeat(${shape.cols},minmax(0,1fr));grid-template-rows:repeat(${shape.rows},minmax(0,1fr))">${pads}</div>
+    <div class="sequence-layout"><div class="sequence-grid${game === 'color_pattern' ? ' color-sequence-grid' : ''}" id="sequenceGrid" style="grid-template-columns:repeat(${shape.cols},minmax(0,1fr));grid-template-rows:repeat(${shape.rows},minmax(0,1fr))">${pads}</div>
     <div class="sequence-hint" id="sequenceHint"><span class="hint-icon">✦</span><span>Watch closely. The sequence is about to begin.</span></div>
     <div class="sequence-footer" id="sequenceDots">${sequenceDots}</div>
     <div class="sequence-replay-row"><button class="secondary-button sequence-replay" id="replayPatternButton" type="button" disabled>↻ Replay pattern <span id="replayCountLabel">2 left</span></button><span class="sequence-replay-note" id="replayPatternNote">Two replays available per level.</span></div></div>
