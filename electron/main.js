@@ -78,7 +78,7 @@ function createWindow() {
     show: false,
     fullscreen: true,
     autoHideMenuBar: true,
-    backgroundColor: '#10131d',
+    backgroundColor: '#f4f7ff',
     title: 'MindSpring',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

@@ -1,10 +1,14 @@
 const API = 'http://127.0.0.1:8765';
 
 const TASKS = [
-  { key: 'pairs', title: 'Find the pairs', subtitle: 'Find matching cards by remembering what you have seen.', domain: 'Associative visual memory', glyph: '▦', kicker: 'GAME 01 / 04' },
-  { key: 'color_pattern', title: 'Color sequence', subtitle: 'Watch the colors light up, then repeat the pattern in order.', domain: 'Visual sequence memory', glyph: '✳', kicker: 'GAME 02 / 04' },
-  { key: 'normal_pattern', title: 'Spatial sequence', subtitle: 'Remember where each tile lights up, then retrace its path.', domain: 'Spatial sequence memory', glyph: '⌗', kicker: 'GAME 03 / 04' },
-  { key: 'stroop', title: 'Color & word', subtitle: 'Choose the ink color. Ignore what the word says and the color of each button.', domain: 'Selective attention and inhibition', glyph: 'Aa', kicker: 'GAME 04 / 04' },
+  { key: 'pairs', title: 'Find the pairs', subtitle: 'Find matching cards by remembering what you have seen.', domain: 'Associative visual memory', glyph: '▦', kicker: 'GAME 01 / 08' },
+  { key: 'color_pattern', title: 'Color sequence', subtitle: 'Watch the colors light up, then repeat the pattern in order.', domain: 'Visual sequence memory', glyph: '✳', kicker: 'GAME 02 / 08' },
+  { key: 'normal_pattern', title: 'Spatial sequence', subtitle: 'Remember where each tile lights up, then retrace its path.', domain: 'Spatial sequence memory', glyph: '⌗', kicker: 'GAME 03 / 08' },
+  { key: 'stroop', title: 'Color & word', subtitle: 'Choose the ink color. Ignore what the word says and the color of each button.', domain: 'Selective attention and inhibition', glyph: 'Aa', kicker: 'GAME 04 / 08' },
+  { key: 'reflex_simple', title: 'Simple reaction', subtitle: 'Wait for the glow, then respond as quickly as you comfortably can.', domain: 'Simple response speed and consistency', glyph: '◉', kicker: 'GAME 05 / 08' },
+  { key: 'reflex_choice', title: 'Choice reaction', subtitle: 'Identify the symbol and select its matching label.', domain: 'Choice response and stimulus discrimination', glyph: '⌘', kicker: 'GAME 06 / 08' },
+  { key: 'reflex_gonogo', title: 'Go / No-Go', subtitle: 'Respond to GO signals and hold your response for NO-GO signals.', domain: 'Response inhibition and sustained attention', glyph: '⏵', kicker: 'GAME 07 / 08' },
+  { key: 'delayed_recall', title: 'Delayed recall', subtitle: 'Learn a small set of words, do a brief distractor task, then recall and recognize them.', domain: 'Immediate and delayed episodic recall', glyph: '◷', kicker: 'GAME 08 / 08' },
 ];
 
 const PALETTE = [
@@ -32,6 +36,51 @@ const PAIR_BOARDS = [
 const PAIR_ROUNDS = 5;
 const SEQUENCE_ROUNDS = 10;
 const STROOP_ROUNDS = 10;
+const REFLEX_TRIALS = 12;
+const RECALL_ITEMS = [
+  { word: 'APPLE', symbol: '🍎' }, { word: 'GUITAR', symbol: '🎸' }, { word: 'LADDER', symbol: '🪜' },
+  { word: 'CANDLE', symbol: '🕯️' }, { word: 'TURTLE', symbol: '🐢' }, { word: 'PLANET', symbol: '🪐' },
+  { word: 'FLOWER', symbol: '🌼' }, { word: 'CAMERA', symbol: '📷' }, { word: 'ANCHOR', symbol: '⚓' },
+  { word: 'ORANGE', symbol: '🍊' }, { word: 'KEYBOARD', symbol: '⌨️' }, { word: 'CASTLE', symbol: '🏰' },
+  { word: 'ROCKET', symbol: '🚀' }, { word: 'TEAPOT', symbol: '🫖' }, { word: 'BICYCLE', symbol: '🚲' },
+  { word: 'SHELL', symbol: '🐚' }, { word: 'COMPASS', symbol: '🧭' }, { word: 'MUSHROOM', symbol: '🍄' },
+  { word: 'BRIDGE', symbol: '🌉' }, { word: 'PENCIL', symbol: '✏️' },
+];
+const CHOICE_STIMULI = [
+  { id: 'blue_circle', label: 'Blue circle', glyph: '●', color: '#4285f4' },
+  { id: 'blue_square', label: 'Blue square', glyph: '■', color: '#4285f4' },
+  { id: 'coral_circle', label: 'Coral circle', glyph: '●', color: '#ef806d' },
+  { id: 'coral_square', label: 'Coral square', glyph: '■', color: '#ef806d' },
+];
+const CLIENT_TASK_SETTINGS = {
+  stroop: [
+    { incongruent_rate: 0.55 }, { incongruent_rate: 0.75 }, { incongruent_rate: 0.88 },
+  ],
+  reflex_simple: [
+    { response_window_ms: 2200, wait_min_ms: 900, wait_max_ms: 2200 },
+    { response_window_ms: 1800, wait_min_ms: 800, wait_max_ms: 1900 },
+    { response_window_ms: 1500, wait_min_ms: 700, wait_max_ms: 1600 },
+  ],
+  reflex_choice: [
+    { response_window_ms: 2600, choice_count: 2 },
+    { response_window_ms: 2200, choice_count: 3 },
+    { response_window_ms: 1800, choice_count: 4 },
+  ],
+  reflex_gonogo: [
+    { response_window_ms: 1100, no_go_rate: 0.25 },
+    { response_window_ms: 950, no_go_rate: 0.33 },
+    { response_window_ms: 850, no_go_rate: 0.40 },
+  ],
+  delayed_recall: [
+    { item_count: 6, study_seconds: 8, delay_seconds: 12 },
+    { item_count: 8, study_seconds: 7, delay_seconds: 15 },
+    { item_count: 10, study_seconds: 6, delay_seconds: 18 },
+  ],
+};
+const TASK_ROUND_COUNTS = {
+  pairs: PAIR_ROUNDS, color_pattern: SEQUENCE_ROUNDS, normal_pattern: SEQUENCE_ROUNDS,
+  stroop: STROOP_ROUNDS, reflex_simple: 1, reflex_choice: 1, reflex_gonogo: 1, delayed_recall: 1,
+};
 
 const el = (id) => document.getElementById(id);
 const state = {
@@ -39,7 +88,7 @@ const state = {
   participantCode: '',
   age: null,
   taskIndex: 0,
-  difficulty: { pairs: 1, color_pattern: 1, normal_pattern: 1, stroop: 1 },
+  difficulty: { pairs: 1, color_pattern: 1, normal_pattern: 1, stroop: 1, reflex_simple: 1, reflex_choice: 1, reflex_gonogo: 1, delayed_recall: 1 },
   results: [],
   currentRound: 1,
   renderToken: 0,
@@ -51,6 +100,9 @@ const state = {
   originalError: null,
   sequenceMemory: { color_pattern: [], normal_pattern: [] },
   stroopSchedule: [],
+  developerOpen: false,
+  developerSnapshot: null,
+  taskSettings: {},
 };
 
 function activeNow() {
@@ -98,6 +150,13 @@ function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
+function getTaskSettings(game, level) {
+  const current = state.taskSettings[game];
+  if (current && (state.difficulty[game] || 1) === level) return current;
+  const options = CLIENT_TASK_SETTINGS[game];
+  return options ? options[level - 1] : {};
+}
+
 function average(values) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 }
@@ -121,11 +180,8 @@ function sleepActive(milliseconds, token = state.renderToken) {
 function updateProgress() {
   const currentTask = TASKS[state.taskIndex];
   const finishedGames = state.taskIndex;
-  const roundFraction = currentTask.key === 'pairs'
-    ? (state.currentRound - 1) / PAIR_ROUNDS
-    : currentTask.key === 'stroop'
-      ? (state.currentRound - 1) / STROOP_ROUNDS
-      : (state.currentRound - 1) / SEQUENCE_ROUNDS;
+  const taskRoundCount = TASK_ROUND_COUNTS[currentTask.key] || 1;
+  const roundFraction = (state.currentRound - 1) / taskRoundCount;
   const totalFraction = clamp((finishedGames + Math.min(0.95, roundFraction) / 1.15) / TASKS.length, 0, .99);
   const percent = Math.round(totalFraction * 100);
   el('railProgressFill').style.width = `${percent}%`;
@@ -186,11 +242,13 @@ async function beginSession(event) {
     state.participantCode = el('participantCode').value.trim();
     state.age = age;
     state.difficulty = { ...state.difficulty, ...response.difficulty_levels };
+    state.taskSettings = { ...(response.task_settings || {}) };
     state.taskIndex = 0;
     state.results = [];
     state.currentRound = 1;
     state.sequenceMemory = { color_pattern: [], normal_pattern: [] };
     state.stroopSchedule = [];
+    state.developerSnapshot = null;
     state.pausedTotalMs = 0;
     state.isPaused = false;
     el('sessionShortId').textContent = response.session_id.slice(-8).toUpperCase();
@@ -223,9 +281,13 @@ function launchTask(index) {
       state.sequenceMemory[task.key].push(nextPatternValue(state.sequenceMemory[task.key], count));
     }
     startSequenceRound(task.key, 1);
-  } else {
+  } else if (task.key === 'stroop') {
     state.stroopSchedule = [];
     startStroopRound(1);
+  } else if (task.key.startsWith('reflex_')) {
+    startReflexRound(task.key);
+  } else if (task.key === 'delayed_recall') {
+    startDelayedRecall();
   }
 }
 
@@ -250,6 +312,27 @@ function makeRoundMetrics(game, round, details) {
     matches_found: details.matches_found || undefined,
     total_pairs: details.total_pairs || undefined,
     word_reading_errors: details.word_reading_errors || undefined,
+    trials: details.trials || undefined,
+    trial_count: details.trial_count || undefined,
+    valid_trial_count: details.valid_trial_count || undefined,
+    median_reaction_time_ms: Number(median(details.reaction_times || []).toFixed(2)),
+    reaction_time_variability_ms: Number((details.reaction_times && details.reaction_times.length > 1
+      ? Math.sqrt(average(details.reaction_times.map((value) => (value - average(details.reaction_times)) ** 2))) : 0).toFixed(2)),
+    false_starts: details.false_starts || undefined,
+    omission_errors: details.omission_errors || undefined,
+    commission_errors: details.commission_errors || undefined,
+    immediate_total: details.immediate_total || undefined,
+    immediate_recall_count: details.immediate_recall_count ?? undefined,
+    delayed_total: details.delayed_total || undefined,
+    delayed_recall_count: details.delayed_recall_count ?? undefined,
+    recognition_hits: details.recognition_hits || undefined,
+    recognition_misses: details.recognition_misses || undefined,
+    recognition_false_alarms: details.recognition_false_alarms || undefined,
+    recognition_correct_rejections: details.recognition_correct_rejections || undefined,
+    distractor_taps: details.distractor_taps || undefined,
+    target_count: details.target_count || undefined,
+    lure_count: details.lure_count || undefined,
+    task_parameters: details.task_parameters || undefined,
   };
 }
 
@@ -269,8 +352,10 @@ async function submitRound(telemetry, token) {
     });
     if (token !== state.renderToken) return null;
     state.difficulty[telemetry.game] = response.dda_action.next_difficulty_level || state.difficulty[telemetry.game];
+    if (response.dda_action.task_parameters) state.taskSettings[telemetry.game] = response.dda_action.task_parameters;
     const result = { telemetry, assessment: response.assessment, dda_action: response.dda_action };
     state.results.push(result);
+    if (state.developerOpen) updateAgentPanel();
     return result;
   } catch (error) {
     showToast(`Couldn’t save this round: ${error.message}`, 5000);
@@ -291,6 +376,13 @@ function showFeedback(result, options) {
   const breakNote = dda.micro_break_recommended
     ? '<div class="micro-break-note"><b>A small reset might help.</b><span>The agent noticed a tricky round. Take a breath before continuing, or pause with Esc.</span></div>'
     : '';
+  const screenerExplanation = assessment.Decision_Explanation || 'The screener used task-specific performance measurements.';
+  const metricsUsed = (assessment.Metrics_Used || dda.metrics_used || []).join(', ') || 'Task metrics';
+  const uncertainty = assessment.Uncertainty_95pct_Points == null ? 'Not enough evidence yet' : `±${Math.round(assessment.Uncertainty_95pct_Points)} score points (exploratory)`;
+  const evidence = assessment.Evidence_Sample_Count == null ? 'Sample size not reported' : `${assessment.Evidence_Sample_Count} observations · confidence ${Math.round((assessment.Evidence_Confidence || 0) * 100)}%`;
+  const settingsChanged = dda.before_parameters && dda.after_parameters
+    ? `<div class="settings-diff"><span>Before <b>${escapeHTML(JSON.stringify(dda.before_parameters))}</b></span><span>After <b>${escapeHTML(JSON.stringify(dda.after_parameters))}</b></span></div>` : '';
+  const qualityFlags = (assessment.Data_Quality_Flags || []).map((flag) => `<li>${escapeHTML(flag)}</li>`).join('');
   el('gameMount').innerHTML = `<div class="feedback-wrap">
     <div class="feedback-icon">✦</div>
     <div class="stage-kicker">ROUND REVIEW · MESA MULTI-AGENT ANALYSIS</div>
@@ -304,7 +396,8 @@ function showFeedback(result, options) {
         <div><strong>${mistakes}</strong><span>Misses / retries</span></div>
       </div>
     </div>
-    <div class="feedback-reason"><b>What the adaptive agent changed</b><p>${reason} Next setting: ${dda.difficulty_name || 'Gentle'}.</p></div>
+    <div class="feedback-reason"><b>Adaptive agent decision</b><p>${escapeHTML(reason)} Next setting: ${escapeHTML(dda.difficulty_name || 'Gentle')}.</p>${settingsChanged}</div>
+    <details class="agent-explanation"><summary>Why did the agents decide this?</summary><p><b>ScreenerAgent:</b> ${escapeHTML(screenerExplanation)}</p><p><b>Metrics used:</b> ${escapeHTML(metricsUsed)}.</p><p><b>Evidence:</b> ${escapeHTML(evidence)}. Approximate score uncertainty: ${escapeHTML(uncertainty)}.</p>${qualityFlags ? `<p><b>Quality notes</b><ul>${qualityFlags}</ul></p>` : ''}<p class="agent-disclaimer">Performance analytics only. These values are not diagnostic probabilities or clinical reference scores.</p></details>
     ${breakNote}
     <button class="primary-button" id="continueButton" type="button"><span>${buttonText}</span><span class="button-arrow">↗</span></button>
   </div>`;
@@ -331,6 +424,8 @@ function continueAfterRound(game, round, maxRound) {
   }
   if (game === 'pairs') startPairs(round + 1);
   else if (game === 'stroop') startStroopRound(round + 1);
+  else if (game.startsWith('reflex_')) startReflexRound(game);
+  else if (game === 'delayed_recall') startDelayedRecall();
   else startSequenceRound(game, round + 1);
 }
 
@@ -579,6 +674,398 @@ function startSequenceRound(game, round) {
   }
 }
 
+function activeWait(milliseconds, token, shouldStop = () => false) {
+  return (async () => {
+    const startedAt = activeNow();
+    while (activeNow() - startedAt < milliseconds) {
+      if (token !== state.renderToken) return false;
+      if (shouldStop()) return true;
+      const remaining = milliseconds - (activeNow() - startedAt);
+      if (!await sleepActive(Math.min(30, Math.max(1, remaining)), token)) return false;
+    }
+    return token === state.renderToken;
+  })();
+}
+
+// Reflex Lab: trial-level logs are retained so median latency, variability,
+// anticipations, omissions and inhibition slips remain visible to the agents.
+function startReflexRound(game) {
+  state.currentRound = 1;
+  const task = TASKS.find((item) => item.key === game);
+  setGameHeader(task, 1);
+  const token = ++state.renderToken;
+  const level = clamp(state.difficulty[game] || 1, 1, 3);
+  const settings = getTaskSettings(game, level);
+  const trials = [];
+  const reactionTimes = [];
+  let validTrialCount = 0;
+  let correctCount = 0;
+  let incorrectCount = 0;
+  let falseStarts = 0;
+  let omissionErrors = 0;
+  let commissionErrors = 0;
+  let phase = 'idle';
+  let premature = false;
+  let responded = false;
+  let responseValue = null;
+  let currentStimulus = null;
+  let currentIsTarget = true;
+  let onsetAt = 0;
+  const startedAt = activeNow();
+  const choiceButtons = game === 'reflex_choice'
+    ? `<div class="reflex-choice-grid" id="reflexChoiceButtons">${CHOICE_STIMULI.map((item) => `<button class="reflex-choice" type="button" data-choice="${item.id}" hidden><span style="color:${item.color}">${item.glyph}</span><b>${item.label}</b></button>`).join('')}</div>`
+    : '';
+  el('gameMount').innerHTML = `${stageHead('REFLEX LAB · 12 TRIALS', task.subtitle, '0', 'Correct', '0', 'Trials')}
+    <div class="reflex-layout">
+      <p class="reflex-instruction" id="reflexInstruction">Press begin when you’re ready. Keep your hands relaxed and wait for each cue.</p>
+      <div class="reflex-stimulus-wrap"><button id="reflexTarget" class="reflex-target is-ready" type="button" aria-label="Reaction target"><span class="reflex-target-glyph">✦</span><b>Ready?</b></button></div>
+      ${choiceButtons}
+      <div class="reflex-trial-progress" id="reflexTrialProgress"><span></span></div>
+      <div class="reflex-live-stats"><span>False starts <b id="reflexFalseStarts">0</b></span><span>Median response <b id="reflexMedian">—</b></span></div>
+      <button class="primary-button reflex-start" id="reflexStart" type="button">Begin 12 trials <span class="button-arrow">↗</span></button>
+    </div>
+    <div class="stage-status" id="stageStatus"><span class="status-indicator"></span><span>Ready when you are.</span></div>`;
+
+  const targetNode = el('reflexTarget');
+  const startNode = el('reflexStart');
+  const choiceNodes = [...document.querySelectorAll('.reflex-choice')];
+
+  function respond(value) {
+    if (state.isPaused || token !== state.renderToken || phase === 'idle' || phase === 'between' || phase === 'done') return;
+    if (phase === 'waiting') {
+      premature = true;
+      setStageStatus('That was early. Wait for the cue, then try again.', 'error');
+      return;
+    }
+    if (phase !== 'active' || responded) return;
+    responded = true;
+    responseValue = value;
+  }
+  targetNode.addEventListener('click', () => { if (game === 'reflex_choice' && phase === 'active') return; respond('target'); });
+  choiceNodes.forEach((button) => button.addEventListener('click', () => respond(button.dataset.choice)));
+
+  async function runTrials() {
+    startNode.disabled = true;
+    startNode.classList.add('hidden');
+    phase = 'waiting';
+    const goNoGoPlan = Array(REFLEX_TRIALS).fill(true);
+    if (game === 'reflex_gonogo') {
+      const noGoCount = Math.max(2, Math.round(REFLEX_TRIALS * settings.no_go_rate));
+      for (let i = 0; i < noGoCount; i += 1) goNoGoPlan[i] = false;
+      shuffle(goNoGoPlan);
+    }
+
+    let attemptsGuard = 0;
+    while (validTrialCount < REFLEX_TRIALS && attemptsGuard < REFLEX_TRIALS * 4) {
+      attemptsGuard += 1;
+      premature = false;
+      responded = false;
+      responseValue = null;
+      const nextTrialNumber = validTrialCount + 1;
+      const targetList = game === 'reflex_choice'
+        ? shuffle(CHOICE_STIMULI).slice(0, settings.choice_count)
+        : [];
+      currentStimulus = game === 'reflex_choice'
+        ? targetList[Math.floor(Math.random() * targetList.length)]
+        : null;
+      currentIsTarget = game === 'reflex_gonogo' ? goNoGoPlan[validTrialCount] : true;
+      const waitMinimum = settings.wait_min_ms || 700;
+      const waitMaximum = settings.wait_max_ms || 1700;
+      const waitMs = waitMinimum + Math.random() * (waitMaximum - waitMinimum);
+      phase = 'waiting';
+      targetNode.className = 'reflex-target is-waiting';
+      targetNode.innerHTML = '<span class="reflex-target-glyph">···</span><b>Wait for it</b>';
+      choiceNodes.forEach((button) => {
+        const item = CHOICE_STIMULI.find((entry) => entry.id === button.dataset.choice);
+        button.hidden = game !== 'reflex_choice' || !targetList.some((choice) => choice.id === item.id);
+        button.classList.remove('is-correct', 'is-wrong');
+      });
+      el('reflexInstruction').textContent = game === 'reflex_gonogo'
+        ? 'Wait for the cue. Click GO cues only, and do nothing for NO-GO cues.'
+        : game === 'reflex_choice' ? 'Wait for the symbol. Then choose the matching label.' : 'Wait until the target glows, then click it.';
+      setStageStatus(`Trial ${nextTrialNumber} of ${REFLEX_TRIALS}. Wait for the cue.`);
+      await activeWait(waitMs, token, () => premature);
+      if (token !== state.renderToken) return;
+      if (premature) {
+        falseStarts += 1;
+        incorrectCount += 1;
+        trials.push({ trial: nextTrialNumber, kind: game, stimulus: 'anticipatory response', response: 'early_click', correct: false, outcome: 'false_start', reaction_time_ms: null, difficulty_level: level });
+        el('reflexFalseStarts').textContent = String(falseStarts);
+        phase = 'between';
+        setStageStatus('Early response recorded. The trial will repeat.', 'error');
+        await sleepActive(380, token);
+        continue;
+      }
+
+      phase = 'active';
+      onsetAt = activeNow();
+      targetNode.className = `reflex-target ${game === 'reflex_gonogo' && !currentIsTarget ? 'is-no-go' : 'is-go'}`;
+      if (game === 'reflex_simple') {
+        targetNode.innerHTML = '<span class="reflex-target-glyph">✦</span><b>NOW</b>';
+      } else if (game === 'reflex_choice') {
+        targetNode.innerHTML = `<span class="reflex-choice-stimulus" style="color:${currentStimulus.color}">${currentStimulus.glyph}</span><b>Match the symbol</b>`;
+      } else {
+        targetNode.innerHTML = currentIsTarget
+          ? '<span class="reflex-target-glyph">●</span><b>GO</b>'
+          : '<span class="reflex-target-glyph">■</span><b>NO GO</b>';
+      }
+      setStageStatus(game === 'reflex_gonogo' && !currentIsTarget ? 'Hold your response for NO-GO.' : 'Respond now.');
+      const windowMs = settings.response_window_ms;
+      await activeWait(windowMs, token, () => responded);
+      if (token !== state.renderToken) return;
+
+      let isCorrect = false;
+      let outcome = '';
+      let rt = null;
+      if (responded) {
+        rt = Math.max(0, activeNow() - onsetAt);
+        reactionTimes.push(rt);
+        if (game === 'reflex_gonogo' && !currentIsTarget) {
+          commissionErrors += 1;
+          outcome = 'commission_error';
+        } else if (game === 'reflex_choice') {
+          isCorrect = responseValue === currentStimulus.id;
+          outcome = isCorrect ? 'correct_choice' : 'incorrect_choice';
+        } else {
+          isCorrect = true;
+          outcome = 'hit';
+        }
+      } else if (game === 'reflex_gonogo' && !currentIsTarget) {
+        isCorrect = true;
+        outcome = 'correct_withhold';
+      } else {
+        omissionErrors += 1;
+        outcome = 'omission';
+      }
+      if (isCorrect) correctCount += 1;
+      else incorrectCount += 1;
+      trials.push({
+        trial: nextTrialNumber, kind: game,
+        stimulus: game === 'reflex_choice' ? currentStimulus.id : (game === 'reflex_gonogo' ? (currentIsTarget ? 'GO' : 'NO_GO') : 'target'),
+        expected: game === 'reflex_choice' ? currentStimulus.id : (game === 'reflex_gonogo' ? (currentIsTarget ? 'respond' : 'withhold') : 'respond'),
+        response: responded ? responseValue : 'none', correct: isCorrect, outcome,
+        reaction_time_ms: rt == null ? null : Math.round(rt), target: currentIsTarget, difficulty_level: level,
+      });
+      validTrialCount += 1;
+      el('reflexTrialProgress').innerHTML = `<span style="width:${(validTrialCount / REFLEX_TRIALS) * 100}%"></span>`;
+      el('reflexTrialProgress').classList.add('is-animated');
+      el('reflexTrialProgress').setAttribute('aria-label', `${validTrialCount} of ${REFLEX_TRIALS} trials complete`);
+      el('reflexFalseStarts').textContent = String(falseStarts);
+      el('reflexMedian').textContent = reactionTimes.length ? `${Math.round(median(reactionTimes))} ms` : '—';
+      choiceNodes.forEach((button) => {
+        if (game === 'reflex_choice' && button.dataset.choice === currentStimulus.id) button.classList.add(isCorrect ? 'is-correct' : 'is-wrong');
+      });
+      targetNode.className = `reflex-target ${isCorrect ? 'is-correct' : 'is-wrong'}`;
+      targetNode.innerHTML = `<span class="reflex-target-glyph">${isCorrect ? '✓' : '·'}</span><b>${isCorrect ? 'Good response' : outcome === 'commission_error' ? 'Response held next time' : outcome === 'omission' ? 'No response recorded' : 'Check the cue'}</b>`;
+      setStageStatus(`Trial ${validTrialCount} of ${REFLEX_TRIALS} complete: ${outcome.replaceAll('_', ' ')}.`, isCorrect ? 'success' : 'error');
+      phase = 'between';
+      await sleepActive(320, token);
+    }
+    if (token !== state.renderToken) return;
+    phase = 'done';
+    targetNode.className = 'reflex-target is-ready';
+    targetNode.innerHTML = '<span class="reflex-target-glyph">✦</span><b>Block complete</b>';
+    choiceNodes.forEach((button) => { button.hidden = true; });
+    const telemetry = makeRoundMetrics(game, 1, {
+      attempts: Math.max(1, correctCount + incorrectCount), correct_attempts: correctCount,
+      incorrect_attempts: incorrectCount, reaction_times: reactionTimes,
+      completion_time_sec: (activeNow() - startedAt) / 1000,
+      trials, trial_count: trials.length, valid_trial_count: validTrialCount,
+      false_starts: falseStarts, omission_errors: omissionErrors, commission_errors: commissionErrors,
+      task_parameters: settings,
+    });
+    const result = await submitRound(telemetry, token);
+    if (!result || token !== state.renderToken) return;
+    const message = game === 'reflex_gonogo'
+      ? `You completed ${validTrialCount} go/ no-go trials with ${commissionErrors} commission errors, ${omissionErrors} missed GO targets and ${falseStarts} early responses.`
+      : `You completed ${validTrialCount} trials with a median response of ${Math.round(median(reactionTimes)) || 0} ms and ${falseStarts} early responses.`;
+    showFeedback(result, {
+      title: 'Reflex Lab, complete.', message,
+      buttonText: nextTaskButtonLabel(true),
+      next: () => continueAfterRound(game, 1, 1),
+    });
+  }
+  startNode.addEventListener('click', runTrials, { once: true });
+}
+
+function normalizeRecallInput(value) {
+  return value.toUpperCase().replace(/[^A-Z\s,;\n]/g, ' ').split(/[\s,;]+/).filter(Boolean);
+}
+
+function renderRecallEntry(stageTitle, prompt, total, onSubmit, token) {
+  if (token !== state.renderToken) return;
+  let submitted = false;
+  el('gameMount').innerHTML = `${stageHead(stageTitle, prompt, total, 'Items in list', '—', 'Recall')}
+    <div class="recall-entry-wrap"><div class="recall-entry-icon">✎</div><label for="recallAnswer" class="recall-entry-label">Type the words you remember</label><textarea id="recallAnswer" rows="3" autocomplete="off" spellcheck="false" placeholder="Separate words with commas or spaces"></textarea>
+    <p class="recall-helper">Use any order. Spelling should be close enough to recognize the original word.</p><button class="primary-button" id="recallSubmit" type="button">Submit recall <span class="button-arrow">↗</span></button></div>
+    <div class="stage-status" id="stageStatus"><span class="status-indicator"></span><span>Take a moment and enter the items you remember.</span></div>`;
+  const submit = () => {
+    if (submitted || token !== state.renderToken) return;
+    submitted = true;
+    const value = el('recallAnswer').value;
+    el('recallSubmit').disabled = true;
+    el('recallAnswer').disabled = true;
+    onSubmit(value);
+  };
+  el('recallSubmit').addEventListener('click', submit, { once: true });
+  el('recallAnswer').addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      submit();
+    }
+  });
+  el('recallAnswer').focus();
+}
+
+// Delayed Recall separates initial encoding, immediate free recall, distraction,
+// delayed free recall and recognition. Only counts are stored, not typed answer text.
+function startDelayedRecall() {
+  state.currentRound = 1;
+  const task = TASKS.find((item) => item.key === 'delayed_recall');
+  setGameHeader(task, 1);
+  const token = ++state.renderToken;
+  const level = clamp(state.difficulty.delayed_recall || 1, 1, 3);
+  const settings = getTaskSettings('delayed_recall', level);
+  const itemCount = settings.item_count;
+  const studyItems = shuffle(RECALL_ITEMS).slice(0, itemCount);
+  const targetWords = new Set(studyItems.map((item) => item.word));
+  let immediateCount = 0;
+  let delayedCount = 0;
+  let distractorTaps = 0;
+  const recognitionTrials = [];
+  const recognitionTimes = [];
+  const startedAt = activeNow();
+
+  el('gameMount').innerHTML = `${stageHead('MEMORY LAB · LEARN', 'Study the words and symbols. They will disappear before the recall questions.', itemCount, 'Items', settings.study_seconds, 'Seconds')}
+    <div class="recall-study-wrap"><div class="recall-countdown" id="recallCountdown">${settings.study_seconds}</div><div class="recall-study-grid">${studyItems.map((item) => `<div class="recall-study-item"><span>${item.symbol}</span><b>${item.word}</b></div>`).join('')}</div><p>Try to learn each word. You will be asked to recall them without seeing the list.</p></div>
+    <div class="stage-status" id="stageStatus"><span class="status-indicator"></span><span>Study the list until the timer ends.</span></div>`;
+  (async () => {
+    const totalMs = settings.study_seconds * 1000;
+    const beginAt = activeNow();
+    while (activeNow() - beginAt < totalMs) {
+      if (!await sleepActive(200, token)) return;
+      const seconds = Math.max(0, Math.ceil((totalMs - (activeNow() - beginAt)) / 1000));
+      const countdown = el('recallCountdown');
+      if (countdown) countdown.textContent = String(seconds);
+    }
+    if (token !== state.renderToken) return;
+    renderRecallEntry('MEMORY LAB · IMMEDIATE RECALL', 'The list has disappeared. Type any words you remember right now.', itemCount, (answer) => {
+      const recalled = new Set(normalizeRecallInput(answer));
+      immediateCount = [...targetWords].filter((word) => recalled.has(word)).length;
+      const immediateIncorrect = Math.max(0, itemCount - immediateCount);
+      (async () => {
+        if (token !== state.renderToken) return;
+        await runRecallDistractor(token, settings.delay_seconds, () => { distractorTaps += 1; });
+        if (token !== state.renderToken) return;
+        renderRecallEntry('MEMORY LAB · DELAYED RECALL', `After the brief distraction, recall the same ${itemCount} words again without seeing the list.`, itemCount, (delayedAnswer) => {
+          const delayed = new Set(normalizeRecallInput(delayedAnswer));
+          delayedCount = [...targetWords].filter((word) => delayed.has(word)).length;
+          const lures = shuffle(RECALL_ITEMS.filter((item) => !targetWords.has(item.word))).slice(0, itemCount);
+          const recognitionDeck = shuffle([
+            ...studyItems.map((item) => ({ ...item, isTarget: true })),
+            ...lures.map((item) => ({ ...item, isTarget: false })),
+          ]);
+          runRecognition(recognitionDeck, 0);
+        }, token);
+      })();
+    }, token);
+  })();
+
+  async function runRecallDistractor(currentToken, durationSeconds, onTap) {
+    el('gameMount').innerHTML = `${stageHead('MEMORY LAB · DISTRACTION', 'Tap the floating shape while the delay passes. This is a simple non-memory activity.', itemCount, 'Items learned', durationSeconds, 'Seconds')}
+      <div class="distractor-stage" id="distractorStage"><div class="distractor-countdown" id="distractorCountdown">${durationSeconds}</div><button class="distractor-target" id="distractorTarget" type="button" aria-label="Tap the floating shape">✦</button><div class="distractor-tap-count">Taps <b id="distractorTapCount">0</b></div></div>
+      <div class="stage-status" id="stageStatus"><span class="status-indicator"></span><span>Keep your attention on the floating shape.</span></div>`;
+    const stage = el('distractorStage');
+    const target = el('distractorTarget');
+    target.addEventListener('click', () => {
+      onTap();
+      const count = el('distractorTapCount');
+      if (count) count.textContent = String(distractorTaps);
+      target.classList.remove('tap-pop');
+      void target.offsetWidth;
+      target.classList.add('tap-pop');
+    });
+    const durationMs = durationSeconds * 1000;
+    const beginAt = activeNow();
+    while (activeNow() - beginAt < durationMs) {
+      if (!await sleepActive(220, currentToken)) return;
+      const remaining = Math.max(0, Math.ceil((durationMs - (activeNow() - beginAt)) / 1000));
+      const count = el('distractorCountdown');
+      if (count) count.textContent = String(remaining);
+      if (stage && target) {
+        target.style.left = `${8 + Math.random() * 78}%`;
+        target.style.top = `${18 + Math.random() * 55}%`;
+      }
+    }
+  }
+
+  function runRecognition(deck, index) {
+    if (token !== state.renderToken) return;
+    if (index >= deck.length) {
+      finishDelayedRecall();
+      return;
+    }
+    const item = deck[index];
+    const onset = activeNow();
+    el('gameMount').innerHTML = `${stageHead('MEMORY LAB · RECOGNITION', 'Did this word appear in the original list? Answer yes or no.', deck.length, 'Trials', index + 1, 'Current')}
+      <div class="recognition-wrap"><div class="recognition-card"><span>${item.symbol}</span><b>${item.word}</b></div><div class="recognition-actions"><button class="secondary-button recognition-choice" id="recognitionNo" type="button">No, new word</button><button class="primary-button recognition-choice" id="recognitionYes" type="button">Yes, I saw it</button></div><div class="recognition-progress"><span style="width:${(index / deck.length) * 100}%"></span></div></div>
+      <div class="stage-status" id="stageStatus"><span class="status-indicator"></span><span>Trust your memory. Do not worry about guessing.</span></div>`;
+    const answer = (saw) => {
+      const reaction = Math.max(0, activeNow() - onset);
+      const correct = saw === item.isTarget;
+      reactionTimesSafePush(recognitionTimes, reaction);
+      if (item.isTarget && saw) recognitionStats.hits += 1;
+      else if (item.isTarget && !saw) recognitionStats.misses += 1;
+      else if (!item.isTarget && saw) recognitionStats.falseAlarms += 1;
+      else recognitionStats.correctRejections += 1;
+      recognitionTrials.push({ trial: index + 1, kind: 'recognition', stimulus: item.word, expected: item.isTarget ? 'yes' : 'no', response: saw ? 'yes' : 'no', correct, outcome: correct ? 'correct' : 'incorrect', reaction_time_ms: Math.round(reaction) });
+      runRecognition(deck, index + 1);
+    };
+    el('recognitionNo').addEventListener('click', () => answer(false), { once: true });
+    el('recognitionYes').addEventListener('click', () => answer(true), { once: true });
+  }
+
+  const recognitionStats = { hits: 0, misses: 0, falseAlarms: 0, correctRejections: 0 };
+  function reactionTimesSafePush(list, value) {
+    if (Number.isFinite(value) && value >= 0) list.push(value);
+  }
+
+  async function finishDelayedRecall() {
+    const allTrials = [
+      { trial: 1, kind: 'immediate_recall', target_count: itemCount, recalled_count: immediateCount, correct: immediateCount, outcome: 'free_recall' },
+      { trial: 2, kind: 'delayed_recall', target_count: itemCount, recalled_count: delayedCount, correct: delayedCount, outcome: 'free_recall' },
+      ...recognitionTrials,
+    ];
+    const correct = immediateCount + delayedCount + recognitionStats.hits + recognitionStats.correctRejections;
+    const incorrect = (itemCount - immediateCount) + (itemCount - delayedCount) + recognitionStats.misses + recognitionStats.falseAlarms;
+    const telemetry = makeRoundMetrics('delayed_recall', 1, {
+      attempts: Math.max(1, correct + incorrect), correct_attempts: correct, incorrect_attempts: incorrect,
+      reaction_times: recognitionTimes, completion_time_sec: (activeNow() - startedAt) / 1000,
+      trials: allTrials, trial_count: allTrials.length, valid_trial_count: recognitionTrials.length,
+      immediate_total: itemCount, immediate_recall_count: immediateCount,
+      delayed_total: itemCount, delayed_recall_count: delayedCount,
+      recognition_hits: recognitionStats.hits, recognition_misses: recognitionStats.misses,
+      recognition_false_alarms: recognitionStats.falseAlarms,
+      recognition_correct_rejections: recognitionStats.correctRejections,
+      distractor_taps: distractorTaps, target_count: itemCount, lure_count: itemCount,
+      task_parameters: settings,
+    });
+    const result = await submitRound(telemetry, token);
+    if (!result || token !== state.renderToken) return;
+    showFeedback(result, {
+      title: 'Delayed recall, complete.',
+      message: `Immediate recall: ${immediateCount}/${itemCount}. Delayed recall: ${delayedCount}/${itemCount}. Recognition hits: ${recognitionStats.hits}/${itemCount}; false recognitions: ${recognitionStats.falseAlarms}.`,
+      buttonText: nextTaskButtonLabel(true),
+      next: () => continueAfterRound('delayed_recall', 1, 1),
+    });
+  }
+}
+
+async function runRecallDistractor(token, durationSeconds, onTap) {
+  // Replaced per-session by startDelayedRecall's closure implementation.
+}
+
+
 // Game 4: Stroop selective attention. The word, ink and button fill are
 // separate cues; only the ink colour is the correct answer.
 function chooseStroopPair(round, difficulty) {
@@ -586,7 +1073,8 @@ function chooseStroopPair(round, difficulty) {
   if (saved) return saved;
   const used = state.stroopSchedule.filter(Boolean);
   const previous = used.length ? used[used.length - 1] : null;
-  const desiredCongruency = round <= 2 || Math.random() < [0.45, 0.25, 0.12][difficulty - 1];
+  const incongruentRate = getTaskSettings('stroop', difficulty).incongruent_rate || CLIENT_TASK_SETTINGS.stroop[difficulty - 1].incongruent_rate;
+  const desiredCongruency = round <= 2 || Math.random() < (1 - incongruentRate);
   const wordCounts = Array(STROOP_COLORS.length).fill(0);
   const inkCounts = Array(STROOP_COLORS.length).fill(0);
   const pairs = [];
@@ -775,7 +1263,7 @@ function renderResults(response) {
   const profiles = summary.domain_scores || [];
   el('overallScore').textContent = Math.round(summary.overall_task_score || 0);
   el('roundsCount').textContent = String(summary.rounds_completed || 0);
-  el('gamesCount').textContent = `${summary.games_completed || 0} / 4`;
+  el('gamesCount').textContent = `${summary.games_completed || 0} / ${TASKS.length}`;
   el('resultsGreeting').textContent = state.participantCode ? `Well done, ${state.participantCode}.` : 'Nice work showing up.';
   el('resultsSubcopy').textContent = `You played ${summary.rounds_completed || 0} rounds across ${summary.games_completed || 0} different games. Scores summarize how the games went today.`;
   el('resultsNote').textContent = summary.note || 'These scores reflect performance in these games only. They cannot confirm or rule out a cognitive or medical condition.';
@@ -784,6 +1272,10 @@ function renderResults(response) {
     color_pattern: { glyph: '✳', title: 'Visual sequence memory', copy: 'Remembering a sequence of color cues.' },
     normal_pattern: { glyph: '⌗', title: 'Spatial sequence memory', copy: 'Remembering where a sequence appeared.' },
     stroop: { glyph: 'Aa', title: 'Selective attention', copy: 'Filtering a distracting word to follow its ink.' },
+    reflex_simple: { glyph: '◉', title: 'Simple response speed', copy: 'Median reaction time, response variability and anticipations.' },
+    reflex_choice: { glyph: '⌘', title: 'Choice reaction', copy: 'Speed and accuracy when selecting a matching response.' },
+    reflex_gonogo: { glyph: '⏵', title: 'Response inhibition', copy: 'Target hits, missed targets and responses to no-go signals.' },
+    delayed_recall: { glyph: '◷', title: 'Delayed recall', copy: 'Immediate recall, delayed retention and recognition errors.' },
   };
   el('profileGrid').innerHTML = profiles.map((profile) => {
     const info = descriptors[profile.game] || { glyph: '✦', title: profile.domain, copy: 'Task performance summary.' };
@@ -847,10 +1339,69 @@ function togglePause(forceValue) {
   }
 }
 
+
+function escapeHTML(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]);
+}
+
+function setDeveloperPanel(open) {
+  state.developerOpen = Boolean(open);
+  el('developerPanel').classList.toggle('hidden', !state.developerOpen);
+  el('developerViewToggle').classList.toggle('active', state.developerOpen);
+  el('developerViewToggle').setAttribute('aria-expanded', String(state.developerOpen));
+  if (state.developerOpen) updateAgentPanel();
+}
+
+function toggleDeveloperPanel() {
+  setDeveloperPanel(!state.developerOpen);
+}
+
+async function updateAgentPanel() {
+  const meta = el('developerMeta');
+  try {
+    const response = await fetch(`${API}/api/agents/state`, { cache: 'no-store' });
+    if (!response.ok) throw new Error('Could not fetch the agent snapshot.');
+    const data = await response.json();
+    state.developerSnapshot = data;
+    if (!data.active_session) {
+      meta.textContent = 'No active session. Start a session to see live values and decisions.';
+      el('agentCardGrid').innerHTML = '';
+      el('agentDecisionList').innerHTML = '<p class="empty-agent-state">The Mesa model is ready, but no player rounds have been processed yet.</p>';
+      return;
+    }
+    meta.textContent = `Round ${data.current_round} · Current task: ${data.current_game || '—'} · Values refresh after each scored round.`;
+    const cards = (data.agents || []).map((agent) => {
+      const stateText = JSON.stringify(agent.state || {}, null, 2);
+      return `<article class="agent-dev-card"><div class="agent-dev-card-top"><span class="agent-live-dot"></span><b>${escapeHTML(agent.name)}</b></div><p>${escapeHTML(agent.role)}</p><span class="agent-mode">${escapeHTML(agent.mode)}</span><details><summary>Inspect current state</summary><pre>${escapeHTML(stateText)}</pre></details></article>`;
+    }).join('');
+    el('agentCardGrid').innerHTML = cards;
+    const history = (data.decision_history || []).slice().reverse();
+    el('agentDecisionList').innerHTML = history.length ? history.map((entry) => {
+      const decisions = entry.agent_decisions || {};
+      const agentRows = Object.values(decisions).map((decision) => {
+        if (!decision || (!decision.explanation && !decision.decision)) return '';
+        const explanation = decision.explanation || decision.decision || 'No explanation recorded.';
+        const metrics = (decision.metrics_used || []).join(', ');
+        return `<div class="agent-history-agent"><b>${escapeHTML(decision.agent || 'Mesa agent')}</b><p>${escapeHTML(explanation)}</p>${metrics ? `<small>Metrics: ${escapeHTML(metrics)}</small>` : ''}</div>`;
+      }).join('');
+      return `<article class="agent-history-item"><div class="agent-history-meta"><b>Round ${escapeHTML(entry.round)}</b><span>${escapeHTML(entry.game || 'task')}</span></div>${agentRows}</article>`;
+    }).join('') : '<p class="empty-agent-state">Decision history will appear after the first round.</p>';
+  } catch (error) {
+    meta.textContent = `Agent state unavailable: ${error.message}`;
+    el('agentCardGrid').innerHTML = '';
+    el('agentDecisionList').innerHTML = '<p class="empty-agent-state">Check that the local Python Mesa service is running.</p>';
+  }
+}
+
 el('startForm').addEventListener('submit', beginSession);
 el('exportResults').addEventListener('click', exportResults);
 el('restartSession').addEventListener('click', resetWelcome);
 el('resumeButton').addEventListener('click', () => togglePause(false));
+el('developerViewToggle').addEventListener('click', toggleDeveloperPanel);
+el('closeAgentPanel').addEventListener('click', () => setDeveloperPanel(false));
+el('refreshAgentState').addEventListener('click', updateAgentPanel);
 el('quitSession').addEventListener('click', () => {
   if (window.confirm('Leave this session? Results already saved will remain on this computer.')) resetWelcome();
 });
