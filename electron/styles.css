@@ -547,3 +547,70 @@ body {
   .sequence-pad.active { animation: cueBloom .38s ease both; }
   @keyframes cueBloom { 0% { filter: brightness(1); } 45% { filter: brightness(1.7) saturate(1.15); } 100% { filter: brightness(1.22); } }
 }
+
+/* Flexible game navigation and first-round instruction cards. */
+.task-nav-item {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.task-nav-item:disabled { cursor: wait; opacity: .45; transform: none; }
+.task-nav-item.in-progress .nav-state { color: var(--mint); border: 1px solid rgba(33,157,123,.25); background: rgba(33,157,123,.08); }
+.task-nav-item:focus-visible, .task-choice-card:focus-visible, .sequence-replay:focus-visible { outline: 3px solid rgba(51,169,143,.45); outline-offset: 3px; }
+
+.task-intro-card, .task-complete-card, .task-choice-wrap {
+  width: min(100%, 760px);
+  margin: auto;
+  padding: clamp(12px, 3vw, 28px) 0;
+  animation: appear .28s ease both;
+}
+.task-intro-card h3, .task-complete-card h3, .task-choice-wrap h3 {
+  margin: 10px 0 12px;
+  font-size: clamp(25px, 3vw, 36px);
+  letter-spacing: -1.1px;
+}
+.task-intro-orb {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  margin-bottom: 23px;
+  border-radius: 20px;
+  color: #218a73;
+  font-size: 27px;
+  font-weight: 800;
+  background: linear-gradient(145deg, rgba(100,221,188,.25), rgba(139,132,255,.18));
+  border: 1px solid rgba(54,171,142,.24);
+  box-shadow: 0 0 28px rgba(71,193,165,.15), inset 0 1px 0 rgba(255,255,255,.8);
+}
+.task-intro-copy, .task-complete-card p, .task-choice-wrap > p {
+  max-width: 640px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.75;
+}
+.task-intro-tips { display: grid; gap: 12px; padding: 19px 22px 19px 42px; margin: 24px 0; border: 1px solid var(--line); border-radius: 17px; background: rgba(255,255,255,.58); color: var(--muted); font-size: 13px; line-height: 1.6; }
+.task-intro-tips li::marker { color: #31a98b; }
+.task-intro-start { width: 100%; justify-content: space-between; margin-top: 12px; }
+.task-intro-footnote { color: var(--subtle); text-align: center; font-size: 11px; line-height: 1.5; margin: 16px 0 0; }
+.task-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+.task-choice-card { display: flex; align-items: center; gap: 13px; min-width: 0; padding: 16px; text-align: left; color: var(--text); border: 1px solid var(--line); border-radius: 17px; background: rgba(255,255,255,.66); cursor: pointer; box-shadow: 0 5px 15px rgba(52,75,107,.035); transition: transform .18s ease, box-shadow .18s ease, border .18s ease, background .18s ease; }
+.task-choice-card:hover { transform: translateY(-3px); border-color: rgba(39,166,134,.32); background: rgba(255,255,255,.92); box-shadow: 0 12px 28px rgba(52,75,107,.09), 0 0 24px rgba(74,205,174,.09); }
+.task-choice-glyph { display: grid; place-items: center; flex: 0 0 42px; width: 42px; height: 42px; border-radius: 13px; color: #228b73; background: linear-gradient(145deg, rgba(111,226,194,.23), rgba(151,147,255,.15)); font-size: 20px; }
+.task-choice-copy { flex: 1; min-width: 0; }
+.task-choice-copy b, .task-choice-copy small { display: block; }
+.task-choice-copy b { font-size: 12px; }
+.task-choice-copy small { margin-top: 5px; color: var(--subtle); font-size: 10px; line-height: 1.45; }
+.task-choice-arrow { color: #319e83; font-size: 17px; }
+.sequence-replay-row { display: flex; align-items: center; justify-content: center; gap: 13px; flex-wrap: wrap; margin-top: 14px; }
+.sequence-replay { display: inline-flex; align-items: center; gap: 9px; min-height: 42px; padding: 9px 15px; }
+.sequence-replay span { display: inline-flex; align-items: center; justify-content: center; min-width: 52px; padding: 4px 7px; border-radius: 20px; color: #21866f; background: rgba(64,190,157,.13); font-size: 10px; }
+.sequence-replay-note { color: var(--subtle); font-size: 11px; }
+.sequence-replay:disabled { cursor: not-allowed; opacity: .52; }
+@media (max-width: 920px) {
+  .task-choice-grid { grid-template-columns: 1fr; }
+  .task-intro-card, .task-complete-card, .task-choice-wrap { padding-top: 0; }
+}

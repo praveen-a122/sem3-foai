@@ -62,15 +62,15 @@
           <div class="rail-heading">YOUR SESSION</div>
           <div class="rail-progress"><span id="railProgressFill"></span></div>
           <div class="rail-progress-label"><span id="railProgressText">0 of 8 games</span><span id="railPercent">0%</span></div>
-          <div class="task-nav" id="taskNav">
-            <div class="task-nav-item current" data-task="pairs"><span class="task-nav-symbol">▦</span><span><b>Find the pairs</b><small>Associative memory</small></span><span class="nav-state">1</span></div>
-            <div class="task-nav-item" data-task="color_pattern"><span class="task-nav-symbol">✳</span><span><b>Color sequence</b><small>Visual recall</small></span><span class="nav-state">2</span></div>
-            <div class="task-nav-item" data-task="normal_pattern"><span class="task-nav-symbol">⌗</span><span><b>Spatial sequence</b><small>Location recall</small></span><span class="nav-state">3</span></div>
-            <div class="task-nav-item" data-task="stroop"><span class="task-nav-symbol">Aa</span><span><b>Color & word</b><small>Focus & inhibition</small></span><span class="nav-state">4</span></div>
-            <div class="task-nav-item" data-task="reflex_simple"><span class="task-nav-symbol">◉</span><span><b>Simple reaction</b><small>Response speed</small></span><span class="nav-state">5</span></div>
-            <div class="task-nav-item" data-task="reflex_choice"><span class="task-nav-symbol">⌘</span><span><b>Choice reaction</b><small>Stimulus selection</small></span><span class="nav-state">6</span></div>
-            <div class="task-nav-item" data-task="reflex_gonogo"><span class="task-nav-symbol">⏵</span><span><b>Go / No-Go</b><small>Response control</small></span><span class="nav-state">7</span></div>
-            <div class="task-nav-item" data-task="delayed_recall"><span class="task-nav-symbol">◷</span><span><b>Delayed recall</b><small>Retention & recognition</small></span><span class="nav-state">8</span></div>
+          <div class="task-nav" id="taskNav" aria-label="Choose a game">
+            <button class="task-nav-item current" type="button" data-task="pairs"><span class="task-nav-symbol">▦</span><span><b>Find the pairs</b><small>Associative memory</small></span><span class="nav-state">1</span></button>
+            <button class="task-nav-item" type="button" data-task="color_pattern"><span class="task-nav-symbol">✳</span><span><b>Color sequence</b><small>Visual recall</small></span><span class="nav-state">2</span></button>
+            <button class="task-nav-item" type="button" data-task="normal_pattern"><span class="task-nav-symbol">⌗</span><span><b>Spatial sequence</b><small>Location recall</small></span><span class="nav-state">3</span></button>
+            <button class="task-nav-item" type="button" data-task="stroop"><span class="task-nav-symbol">Aa</span><span><b>Color &amp; word</b><small>Focus &amp; inhibition</small></span><span class="nav-state">4</span></button>
+            <button class="task-nav-item" type="button" data-task="reflex_simple"><span class="task-nav-symbol">◉</span><span><b>Simple reaction</b><small>Response speed</small></span><span class="nav-state">5</span></button>
+            <button class="task-nav-item" type="button" data-task="reflex_choice"><span class="task-nav-symbol">⌘</span><span><b>Choice reaction</b><small>Stimulus selection</small></span><span class="nav-state">6</span></button>
+            <button class="task-nav-item" type="button" data-task="reflex_gonogo"><span class="task-nav-symbol">⏵</span><span><b>Go / No-Go</b><small>Response control</small></span><span class="nav-state">7</span></button>
+            <button class="task-nav-item" type="button" data-task="delayed_recall"><span class="task-nav-symbol">◷</span><span><b>Delayed recall</b><small>Retention &amp; recognition</small></span><span class="nav-state">8</span></button>
           </div>
           <div class="rail-tip"><span class="tip-spark">✦</span><b>Little reminder</b><p>There's no need to rush. Accuracy comes first, and pauses are okay.</p></div>
           <div class="rail-bottom"><span class="privacy-dot"></span> Local session <span class="rail-separator">·</span> <span id="sessionShortId">Ready</span></div>

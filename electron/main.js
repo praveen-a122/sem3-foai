@@ -76,7 +76,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 650,
     show: false,
-    fullscreen: true,
+    fullscreen: false,
     autoHideMenuBar: true,
     backgroundColor: '#f4f7ff',
     title: 'MindSpring',
@@ -91,7 +91,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    mainWindow.setFullScreen(true);
+    mainWindow.maximize();
   });
   mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

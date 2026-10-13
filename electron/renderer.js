@@ -82,6 +82,17 @@ const TASK_ROUND_COUNTS = {
   stroop: STROOP_ROUNDS, reflex_simple: 1, reflex_choice: 1, reflex_gonogo: 1, delayed_recall: 1,
 };
 
+const TASK_INSTRUCTIONS = {
+  pairs: { heading: 'Find every matching pair', intro: 'Turn over two cards at a time. Remember where each picture appears and match all pairs to clear the board.', tips: ['Choose any two cards to reveal them.', 'If they do not match, remember their locations before they turn back.', 'Each new board adds another performance sample.'] },
+  color_pattern: { heading: 'Watch the colors, then repeat', intro: 'A short series of colored pads will light up. Tap the pads in exactly the same order.', tips: ['The sequence grows by one step after each successful level.', 'You may replay the pattern up to two times per level.', 'Replays are recorded by the analysis agents, so use them when helpful.'] },
+  normal_pattern: { heading: 'Remember the spatial path', intro: 'Tiles in a 3 × 3 grid will light up one by one. Repeat the locations in the same order.', tips: ['The sequence grows by one step after each successful level.', 'You may replay the pattern up to two times per level.', 'Replays are recorded by the analysis agents, so use them when helpful.'] },
+  stroop: { heading: 'Follow the ink, not the word', intro: 'Choose the color of the letters themselves. The word meaning and the button colors are distractions.', tips: ['Look at the letters, not what they spell.', 'The button positions and fills may change after a mistake.', 'Take a moment to be sure before selecting.'] },
+  reflex_simple: { heading: 'Wait for the signal', intro: 'Start the block, wait through a variable delay, then click the glowing target when it appears.', tips: ['Do not click while the target says “Wait for it”.', 'Respond quickly but avoid guessing early.', 'The game records individual response times, not just a single average.'] },
+  reflex_choice: { heading: 'Match the symbol', intro: 'A colored shape appears after a short wait. Choose the label that matches both its shape and color.', tips: ['Wait for the stimulus to appear.', 'Select the matching label as quickly and accurately as you can.', 'An early response is recorded as a false start.'] },
+  reflex_gonogo: { heading: 'Respond to GO, hold for NO-GO', intro: 'Some cues ask you to respond. Others ask you to withhold your response. Watch each cue carefully.', tips: ['Click only when the cue says GO.', 'Do nothing when the cue says NO GO.', 'Both missed targets and responses to NO-GO cues are recorded.'] },
+  delayed_recall: { heading: 'Learn, distract, remember', intro: 'Study a list of words and symbols, recall them immediately, complete a brief distraction task, recall again, then recognize old items among new ones.', tips: ['Study the list while it is visible.', 'For free recall, type the words you remember in any order.', 'The delayed recall and recognition stages measure different aspects of memory.'] },
+};
+
 const el = (id) => document.getElementById(id);
 const state = {
   sessionId: null,
@@ -103,11 +114,59 @@ const state = {
   developerOpen: false,
   developerSnapshot: null,
   taskSettings: {},
+  activeTaskKey: null,
+  taskViews: {},
+  taskProgress: {},
+  taskTokens: {},
+  tokenOwners: {},
+  taskClocks: {},
+  isSubmitting: false,
 };
 
-function activeNow() {
-  const now = state.isPaused ? state.pauseStartedAt : performance.now();
-  return now - state.pausedTotalMs;
+function freshTaskProgress() {
+  return Object.fromEntries(TASKS.map((task) => [task.key, { started: false, completed: false, nextRound: 1 }]));
+}
+
+function ensureTaskClock(game) {
+  if (!game) return null;
+  if (!state.taskClocks[game]) {
+    state.taskClocks[game] = { startedAt: performance.now(), pausedTotalMs: 0, pausedAt: null };
+  }
+  return state.taskClocks[game];
+}
+
+function activeNow(game = state.activeTaskKey) {
+  const clock = ensureTaskClock(game);
+  if (!clock) return performance.now();
+  const now = clock.pausedAt == null ? performance.now() : clock.pausedAt;
+  return now - clock.startedAt - clock.pausedTotalMs;
+}
+
+function pauseTaskClock(game) {
+  const clock = ensureTaskClock(game);
+  if (clock && clock.pausedAt == null) clock.pausedAt = performance.now();
+}
+
+function resumeTaskClock(game) {
+  const clock = ensureTaskClock(game);
+  if (clock && clock.pausedAt != null) {
+    clock.pausedTotalMs += performance.now() - clock.pausedAt;
+    clock.pausedAt = null;
+  }
+}
+
+function beginTaskRender(game) {
+  state.renderToken += 1;
+  const token = state.renderToken;
+  state.taskTokens[game] = token;
+  state.tokenOwners[token] = game;
+  ensureTaskClock(game);
+  return token;
+}
+
+function isValidTaskToken(token) {
+  const game = state.tokenOwners[token];
+  return Boolean(game && state.taskTokens[game] === token && state.sessionId);
 }
 
 function setScreen(name) {
@@ -166,9 +225,10 @@ function sleepActive(milliseconds, token = state.renderToken) {
     let elapsed = 0;
     let previous = performance.now();
     const tick = () => {
-      if (token !== state.renderToken) return resolve(false);
+      if (!isValidTaskToken(token)) return resolve(false);
       const now = performance.now();
-      if (!state.isPaused) elapsed += now - previous;
+      const owner = state.tokenOwners[token];
+      if (!state.isPaused && owner === state.activeTaskKey) elapsed += now - previous;
       previous = now;
       if (elapsed >= milliseconds) return resolve(true);
       setTimeout(tick, 24);
@@ -178,20 +238,27 @@ function sleepActive(milliseconds, token = state.renderToken) {
 }
 
 function updateProgress() {
-  const currentTask = TASKS[state.taskIndex];
-  const finishedGames = state.taskIndex;
-  const taskRoundCount = TASK_ROUND_COUNTS[currentTask.key] || 1;
-  const roundFraction = (state.currentRound - 1) / taskRoundCount;
-  const totalFraction = clamp((finishedGames + Math.min(0.95, roundFraction) / 1.15) / TASKS.length, 0, .99);
+  const completedCount = TASKS.filter((task) => state.taskProgress[task.key]?.completed).length;
+  const activeTask = TASKS.find((task) => task.key === state.activeTaskKey);
+  const taskRoundCount = activeTask ? (TASK_ROUND_COUNTS[activeTask.key] || 1) : 1;
+  const activeProgress = activeTask && state.taskProgress[activeTask.key] && !state.taskProgress[activeTask.key].completed
+    ? Math.min(0.9, Math.max(0, (state.currentRound - 1) / taskRoundCount)) : 0;
+  const totalFraction = clamp((completedCount + activeProgress) / TASKS.length, 0, 1);
   const percent = Math.round(totalFraction * 100);
   el('railProgressFill').style.width = `${percent}%`;
-  el('railProgressText').textContent = `${finishedGames} of ${TASKS.length} games`;
+  el('railProgressText').textContent = `${completedCount} of ${TASKS.length} games complete`;
   el('railPercent').textContent = `${percent}%`;
   document.querySelectorAll('.task-nav-item').forEach((item, index) => {
-    item.classList.toggle('current', index === state.taskIndex);
-    item.classList.toggle('done', index < state.taskIndex);
+    const key = item.dataset.task;
+    const progress = state.taskProgress[key] || {};
+    item.classList.toggle('current', key === state.activeTaskKey);
+    item.classList.toggle('done', Boolean(progress.completed));
+    item.classList.toggle('in-progress', Boolean(progress.started && !progress.completed));
+    item.disabled = Boolean(state.isSubmitting);
     const badge = item.querySelector('.nav-state');
-    if (badge) badge.textContent = index < state.taskIndex ? '✓' : String(index + 1);
+    if (badge) badge.textContent = progress.completed ? '✓' : progress.started ? '•' : String(index + 1);
+    item.setAttribute('aria-current', key === state.activeTaskKey ? 'page' : 'false');
+    item.title = progress.completed ? 'Completed. Click to review.' : progress.started ? `In progress · resume ${key.replaceAll('_', ' ')}` : `Start ${key.replaceAll('_', ' ')}`;
   });
 }
 
@@ -244,6 +311,13 @@ async function beginSession(event) {
     state.difficulty = { ...state.difficulty, ...response.difficulty_levels };
     state.taskSettings = { ...(response.task_settings || {}) };
     state.taskIndex = 0;
+    state.activeTaskKey = null;
+    state.taskViews = {};
+    state.taskProgress = freshTaskProgress();
+    state.taskTokens = {};
+    state.tokenOwners = {};
+    state.taskClocks = {};
+    state.isSubmitting = false;
     state.results = [];
     state.currentRound = 1;
     state.sequenceMemory = { color_pattern: [], normal_pattern: [] };
@@ -264,31 +338,140 @@ async function beginSession(event) {
 
 function launchTask(index) {
   if (index >= TASKS.length) {
+    if (TASKS.every((task) => state.taskProgress[task.key]?.completed)) finishSession();
+    else renderNextTaskChoice();
+    return;
+  }
+  openTaskByKey(TASKS[index].key);
+}
+
+function saveCurrentTaskView() {
+  const key = state.activeTaskKey;
+  if (!key || state.isSubmitting) return;
+  const mount = el('gameMount');
+  const fragment = document.createDocumentFragment();
+  while (mount.firstChild) fragment.appendChild(mount.firstChild);
+  state.taskViews[key] = fragment;
+  pauseTaskClock(key);
+}
+
+function renderTaskIntro(task) {
+  const instruction = TASK_INSTRUCTIONS[task.key];
+  setGameHeader(task, state.taskProgress[task.key]?.nextRound || 1);
+  el('gameMount').innerHTML = `<div class="task-intro-card">
+    <div class="task-intro-orb">${task.glyph}</div>
+    <div class="stage-kicker">FIRST ROUND · HOW TO PLAY</div>
+    <h3>${escapeHTML(instruction.heading)}</h3>
+    <p class="task-intro-copy">${escapeHTML(instruction.intro)}</p>
+    <ul class="task-intro-tips">${instruction.tips.map((tip) => `<li>${escapeHTML(tip)}</li>`).join('')}</ul>
+    <button class="primary-button task-intro-start" id="taskIntroStart" type="button"><span>Start this game</span><span class="button-arrow">↗</span></button>
+    <p class="task-intro-footnote">You can switch games from the sidebar at any time. Your current progress will be kept.</p>
+  </div>`;
+  el('taskIntroStart').addEventListener('click', () => {
+    const progress = state.taskProgress[task.key];
+    progress.started = true;
+    resumeTaskClock(task.key);
+    startTaskGame(task.key, progress.nextRound || 1);
+    updateProgress();
+  }, { once: true });
+}
+
+function renderCompletedTask(task) {
+  const results = state.results.filter((item) => item.telemetry?.game === task.key);
+  const latest = results[results.length - 1];
+  const score = latest ? Math.round(latest.assessment?.Task_Performance_Score || 0) : null;
+  setGameHeader(task, TASK_ROUND_COUNTS[task.key] || 1);
+  el('gameMount').innerHTML = `<div class="task-complete-card">
+    <div class="task-intro-orb">✓</div><div class="stage-kicker">GAME COMPLETE</div>
+    <h3>${escapeHTML(task.title)} is finished</h3>
+    <p>${score == null ? 'Your saved progress is complete.' : `Your latest play score was ${score}/100.`} Your results are saved for this session. You can choose another game from the sidebar.</p>
+    <button class="secondary-button task-intro-start" id="backToGameChoices" type="button">Choose another game <span>↗</span></button>
+  </div>`;
+  el('backToGameChoices').addEventListener('click', renderNextTaskChoice, { once: true });
+}
+
+function renderNextTaskChoice() {
+  if (state.activeTaskKey) {
+    pauseTaskClock(state.activeTaskKey);
+    state.activeTaskKey = null;
+  }
+  const remaining = TASKS.filter((task) => !state.taskProgress[task.key]?.completed);
+  if (!remaining.length) {
     finishSession();
     return;
   }
-  state.taskIndex = index;
-  state.currentRound = 1;
-  state.renderToken += 1;
-  state.roundData = null;
-  const task = TASKS[index];
-  setGameHeader(task, 1);
-  if (task.key === 'pairs') startPairs(1);
-  else if (task.key === 'color_pattern' || task.key === 'normal_pattern') {
-    state.sequenceMemory[task.key] = [];
-    const count = task.key === 'color_pattern' ? PALETTE.length : 9;
-    while (state.sequenceMemory[task.key].length < 3) {
-      state.sequenceMemory[task.key].push(nextPatternValue(state.sequenceMemory[task.key], count));
-    }
-    startSequenceRound(task.key, 1);
-  } else if (task.key === 'stroop') {
-    state.stroopSchedule = [];
-    startStroopRound(1);
-  } else if (task.key.startsWith('reflex_')) {
-    startReflexRound(task.key);
-  } else if (task.key === 'delayed_recall') {
-    startDelayedRecall();
+  el('gameTitle').textContent = 'Choose your next game';
+  el('gameSubtitle').textContent = 'Play in any order and take a break whenever you need one. Unfinished games keep their place.';
+  el('gameKicker').textContent = 'YOUR SESSION · PICK UP WHERE YOU LEFT OFF';
+  el('difficultyLabel').textContent = `${TASKS.length - remaining.length} of ${TASKS.length} complete`;
+  el('gameMount').innerHTML = `<div class="task-choice-wrap"><div class="stage-kicker">UP NEXT, YOUR WAY</div><h3>What would you like to play?</h3><p>Choose any unfinished game. Games you've started will resume at the same place, including the current round.</p><div class="task-choice-grid">${remaining.map((task) => {
+    const progress = state.taskProgress[task.key];
+    const round = progress.nextRound || 1;
+    const max = TASK_ROUND_COUNTS[task.key] || 1;
+    return `<button class="task-choice-card" type="button" data-choice-task="${task.key}"><span class="task-choice-glyph">${task.glyph}</span><span class="task-choice-copy"><b>${escapeHTML(task.title)}</b><small>${progress.started ? `Resume round ${round} of ${max}` : task.domain}</small></span><span class="task-choice-arrow">↗</span></button>`;
+  }).join('')}</div></div>`;
+  el('gameMount').querySelectorAll('[data-choice-task]').forEach((button) => button.addEventListener('click', () => openTaskByKey(button.dataset.choiceTask)));
+  updateProgress();
+}
+
+function openTaskByKey(game) {
+  const task = TASKS.find((item) => item.key === game);
+  if (!task || !state.sessionId) return;
+  if (state.isSubmitting) {
+    showToast('This round is being saved. You can switch games as soon as the save finishes.');
+    return;
   }
+  if (state.activeTaskKey === game) return;
+  if (state.isPaused) togglePause(false);
+  if (state.activeTaskKey) saveCurrentTaskView();
+
+  const progress = state.taskProgress[game] || (state.taskProgress[game] = { started: false, completed: false, nextRound: 1 });
+  state.taskIndex = TASKS.findIndex((item) => item.key === game);
+  state.activeTaskKey = game;
+  state.currentRound = progress.nextRound || 1;
+  ensureTaskClock(game);
+  resumeTaskClock(game);
+  setGameHeader(task, state.currentRound);
+
+  if (progress.completed) {
+    pauseTaskClock(game);
+    state.activeTaskKey = null;
+    renderCompletedTask(task);
+    updateProgress();
+    return;
+  }
+
+  const savedView = state.taskViews[game];
+  if (savedView && savedView.childNodes.length) {
+    el('gameMount').replaceChildren(savedView);
+    state.taskViews[game] = null;
+    updateProgress();
+    return;
+  }
+  state.taskViews[game] = null;
+  if (!progress.started) renderTaskIntro(task);
+  else startTaskGame(game, progress.nextRound || 1);
+  updateProgress();
+}
+
+function startTaskGame(game, round = 1) {
+  const progress = state.taskProgress[game];
+  if (progress?.completed) return renderCompletedTask(TASKS.find((item) => item.key === game));
+  state.activeTaskKey = game;
+  state.taskIndex = TASKS.findIndex((item) => item.key === game);
+  state.currentRound = round;
+  if (game === 'pairs') startPairs(round);
+  else if (game === 'color_pattern' || game === 'normal_pattern') {
+    if (!state.sequenceMemory[game]?.length) {
+      state.sequenceMemory[game] = [];
+      const count = game === 'color_pattern' ? PALETTE.length : 9;
+      while (state.sequenceMemory[game].length < 3) state.sequenceMemory[game].push(nextPatternValue(state.sequenceMemory[game], count));
+    }
+    startSequenceRound(game, round);
+  } else if (game === 'stroop') startStroopRound(round);
+  else if (game.startsWith('reflex_')) startReflexRound(game);
+  else if (game === 'delayed_recall') startDelayedRecall();
+  updateProgress();
 }
 
 function makeRoundMetrics(game, round, details) {
@@ -309,6 +492,7 @@ function makeRoundMetrics(game, round, details) {
     hesitation_count: details.hesitation_count || 0,
     completion_time_sec: Number((details.completion_time_sec || 0).toFixed(2)),
     sequence_length: details.sequence_length || undefined,
+    pattern_replays: details.pattern_replays ?? undefined,
     matches_found: details.matches_found || undefined,
     total_pairs: details.total_pairs || undefined,
     word_reading_errors: details.word_reading_errors || undefined,
@@ -345,12 +529,14 @@ function median(values) {
 
 async function submitRound(telemetry, token) {
   setStageStatus('Mesa agents are reviewing this round…');
+  state.isSubmitting = true;
+  updateProgress();
   try {
     const response = await apiPost('/api/score', {
       session_id: state.sessionId,
       telemetry,
     });
-    if (token !== state.renderToken) return null;
+    if (!isValidTaskToken(token)) return null;
     state.difficulty[telemetry.game] = response.dda_action.next_difficulty_level || state.difficulty[telemetry.game];
     if (response.dda_action.task_parameters) state.taskSettings[telemetry.game] = response.dda_action.task_parameters;
     const result = { telemetry, assessment: response.assessment, dda_action: response.dda_action };
@@ -361,6 +547,9 @@ async function submitRound(telemetry, token) {
     showToast(`Couldn’t save this round: ${error.message}`, 5000);
     setStageStatus('The round was not saved. Check the local Mesa service and try again.', 'error');
     return null;
+  } finally {
+    state.isSubmitting = false;
+    updateProgress();
   }
 }
 
@@ -405,23 +594,32 @@ function showFeedback(result, options) {
 }
 
 function nextTaskButtonLabel(isLastRound) {
-  if (!isLastRound) return 'Next round';
-  if (state.taskIndex === TASKS.length - 1) return 'View your profile';
-  return 'Continue to next game';
+  return isLastRound ? 'Choose next game' : 'Next round';
 }
 
 function continueAfterRound(game, round, maxRound) {
+  const progress = state.taskProgress[game];
   const isLastRound = round >= maxRound;
+  if (progress) progress.nextRound = isLastRound ? maxRound : round + 1;
   if (isLastRound) {
-    if (state.taskIndex === TASKS.length - 1) finishSession();
-    else launchTask(state.taskIndex + 1);
+    if (progress) progress.completed = true;
+    pauseTaskClock(game);
+    delete state.taskTokens[game];
+    state.taskViews[game] = null;
+    state.activeTaskKey = null;
+    updateProgress();
+    if (TASKS.every((task) => state.taskProgress[task.key]?.completed)) finishSession();
+    else renderNextTaskChoice();
     return;
   }
+
   state.currentRound = round + 1;
+  if (progress) progress.started = true;
   if (game === 'color_pattern' || game === 'normal_pattern') {
     const count = game === 'color_pattern' ? PALETTE.length : 9;
     state.sequenceMemory[game].push(nextPatternValue(state.sequenceMemory[game], count));
   }
+  state.taskViews[game] = null;
   if (game === 'pairs') startPairs(round + 1);
   else if (game === 'stroop') startStroopRound(round + 1);
   else if (game.startsWith('reflex_')) startReflexRound(game);
@@ -432,9 +630,10 @@ function continueAfterRound(game, round, maxRound) {
 // Game 1: associative memory, with increasingly large matching boards.
 function startPairs(round) {
   state.currentRound = round;
+  if (state.taskProgress['pairs']) state.taskProgress['pairs'].nextRound = round;
   const task = TASKS[0];
   setGameHeader(task, round);
-  const token = ++state.renderToken;
+  const token = beginTaskRender('pairs');
   const difficulty = clamp(state.difficulty.pairs || 1, 1, 3);
   const boardIndex = clamp(round + difficulty - 2, 1, PAIR_BOARDS.length);
   const board = PAIR_BOARDS[boardIndex - 1];
@@ -451,8 +650,8 @@ function startPairs(round) {
   let errors = 0;
   let hesitationCount = 0;
   let reactionTimes = [];
-  let lastAction = activeNow();
-  const startedAt = activeNow();
+  let lastAction = activeNow('pairs');
+  const startedAt = activeNow('pairs');
 
   el('gameMount').innerHTML = `${stageHead(`BOARD ${round} OF ${PAIR_ROUNDS}`, 'Turn over two cards at a time and try to find every matching pair.', pairCount, 'Pairs', '0', 'Found')}
     <div class="pairs-board" id="pairsBoard" style="grid-template-columns:repeat(${board.cols},minmax(0,1fr));grid-template-rows:repeat(${board.rows},minmax(0,1fr))"></div>
@@ -470,8 +669,8 @@ function startPairs(round) {
   });
 
   function flipCard(card, button) {
-    if (state.isPaused || token !== state.renderToken || locked || card.flipped || card.matched) return;
-    const now = activeNow();
+    if (state.isPaused || !isValidTaskToken(token) || locked || card.flipped || card.matched) return;
+    const now = activeNow('pairs');
     const reaction = Math.max(0, now - lastAction);
     if (reaction > 0) {
       reactionTimes.push(reaction);
@@ -508,7 +707,7 @@ function startPairs(round) {
       locked = true;
       setStageStatus('Not a match this time. Have another look.', 'error');
       sleepActive(720, token).then((stillHere) => {
-        if (!stillHere || token !== state.renderToken) return;
+        if (!stillHere || !isValidTaskToken(token)) return;
         first.flipped = false;
         second.flipped = false;
         for (const item of [first, second]) {
@@ -519,7 +718,7 @@ function startPairs(round) {
         }
         flipped = [];
         locked = false;
-        lastAction = activeNow();
+        lastAction = activeNow('pairs');
         setStageStatus('Ready when you are.');
       });
     }
@@ -527,7 +726,7 @@ function startPairs(round) {
 
   async function finishBoard() {
     locked = true;
-    const now = activeNow();
+    const now = activeNow('pairs');
     const telemetry = makeRoundMetrics('pairs', round, {
       attempts,
       correct_attempts: matches,
@@ -539,7 +738,7 @@ function startPairs(round) {
       total_pairs: pairCount,
     });
     const result = await submitRound(telemetry, token);
-    if (!result || token !== state.renderToken) return;
+    if (!result || !isValidTaskToken(token)) return;
     const lastRound = round >= PAIR_ROUNDS;
     showFeedback(result, {
       title: lastRound ? 'Pairs, complete.' : 'Board cleared.',
@@ -562,17 +761,22 @@ function nextPatternValue(sequence, optionCount) {
 // scores color order and the other scores the locations of lit tiles.
 function startSequenceRound(game, round) {
   state.currentRound = round;
+  if (state.taskProgress[game]) state.taskProgress[game].nextRound = round;
   const task = TASKS.find((item) => item.key === game);
   setGameHeader(task, round);
-  const token = ++state.renderToken;
+  const token = beginTaskRender(game);
   const difficulty = clamp(state.difficulty[game] || 1, 1, 3);
   const shape = game === 'normal_pattern' ? { rows: 3, cols: 3 } : { rows: 2, cols: 4 };
   const palette = game === 'color_pattern' ? PALETTE : null;
   const optionCount = game === 'color_pattern' ? PALETTE.length : 9;
   const sequence = [...state.sequenceMemory[game]];
   const sequenceLength = sequence.length;
-  const flashTime = [760, 620, 500][difficulty - 1];
-  const gapTime = [280, 230, 180][difficulty - 1];
+  // The original flashes were 760/620/500 ms. These are modestly quicker,
+  // while still leaving enough time to perceive each cue.
+  const flashTime = [620, 520, 420][difficulty - 1];
+  const gapTime = [220, 180, 150][difficulty - 1];
+  const replayLimit = 2;
+  let replayCount = 0;
   let input = [];
   let submissionCount = 0;
   let mistakes = 0;
@@ -580,7 +784,8 @@ function startSequenceRound(game, round) {
   let reactionTimes = [];
   let lastAction = 0;
   let waitingForInput = false;
-  const startedAt = activeNow();
+  let previewing = false;
+  const startedAt = activeNow(game);
 
   const pads = Array.from({ length: optionCount }, (_, index) => {
     const label = game === 'color_pattern' ? palette[index].name : `Tile ${index + 1}`;
@@ -593,15 +798,19 @@ function startSequenceRound(game, round) {
   el('gameMount').innerHTML = `${stageHead(`LEVEL ${round} OF ${SEQUENCE_ROUNDS}`, game === 'color_pattern' ? 'Watch the color sequence, then tap each color in the same order.' : 'Watch the 3 × 3 grid light up, then tap the same tiles in order.', sequenceLength, 'Steps', '0', 'Recalled')}
     <div class="sequence-layout"><div class="sequence-grid" id="sequenceGrid" style="grid-template-columns:repeat(${shape.cols},minmax(0,1fr));grid-template-rows:repeat(${shape.rows},minmax(0,1fr))">${pads}</div>
     <div class="sequence-hint" id="sequenceHint"><span class="hint-icon">✦</span><span>Watch closely. The sequence is about to begin.</span></div>
-    <div class="sequence-footer" id="sequenceDots">${sequenceDots}</div></div>
+    <div class="sequence-footer" id="sequenceDots">${sequenceDots}</div>
+    <div class="sequence-replay-row"><button class="secondary-button sequence-replay" id="replayPatternButton" type="button" disabled>↻ Replay pattern <span id="replayCountLabel">2 left</span></button><span class="sequence-replay-note" id="replayPatternNote">Two replays available per level.</span></div></div>
     <div class="stage-status" id="stageStatus"><span class="status-indicator"></span><span>Get ready to remember ${sequenceLength} steps.</span></div>`;
   const padNodes = [...document.querySelectorAll('.sequence-pad')];
   const dotNodes = [...document.querySelectorAll('.sequence-dot')];
+  const replayButton = el('replayPatternButton');
+  const replayCountLabel = el('replayCountLabel');
+  const replayNote = el('replayPatternNote');
 
   padNodes.forEach((pad) => pad.addEventListener('click', () => {
-    if (state.isPaused || token !== state.renderToken || !waitingForInput || pad.disabled) return;
+    if (state.isPaused || !isValidTaskToken(token) || state.activeTaskKey !== game || !waitingForInput || pad.disabled || previewing) return;
     const index = Number(pad.dataset.index);
-    const now = activeNow();
+    const now = activeNow(game);
     const reaction = Math.max(0, now - lastAction);
     reactionTimes.push(reaction);
     if (reaction >= 3000) hesitationCount += 1;
@@ -620,54 +829,81 @@ function startSequenceRound(game, round) {
     if (correct) completeSequence();
     else {
       mistakes += 1;
-      setStageStatus('Almost. Watch it once more and give it another try.', 'error');
-      el('sequenceHint').innerHTML = '<span class="hint-icon">↻</span><span>Take another look. This level stays the same.</span>';
-      sleepActive(600, token).then((stillHere) => { if (stillHere) previewSequence(); });
+      input = [];
+      dotNodes.forEach((dot) => dot.classList.remove('filled'));
+      padNodes.forEach((item) => { item.disabled = false; item.classList.remove('active'); });
+      waitingForInput = true;
+      setStageStatus('That sequence did not match. Try again from memory or replay the pattern.', 'error');
+      el('sequenceHint').innerHTML = '<span class="hint-icon">↻</span><span>Retry from memory, or use one of your two replays.</span>';
+      const sequenceStats = document.querySelectorAll('.stage-stat b');
+      if (sequenceStats.length > 1) sequenceStats[1].textContent = '0';
+      lastAction = activeNow(game);
     }
   }));
 
-  previewSequence();
+  replayButton.addEventListener('click', () => {
+    if (!waitingForInput || previewing || replayCount >= replayLimit || !isValidTaskToken(token) || state.activeTaskKey !== game) return;
+    previewSequence(true);
+  });
 
-  async function previewSequence() {
-    if (token !== state.renderToken) return;
+  previewSequence(false);
+
+  async function previewSequence(isReplay = false) {
+    if (!isValidTaskToken(token) || previewing) return;
+    if (isReplay) {
+      if (replayCount >= replayLimit) return;
+      replayCount += 1;
+    }
+    previewing = true;
     waitingForInput = false;
     input = [];
     dotNodes.forEach((dot) => dot.classList.remove('filled'));
     padNodes.forEach((pad) => { pad.disabled = true; pad.classList.remove('active'); });
-    el('sequenceHint').innerHTML = '<span class="hint-icon">✦</span><span>Watch the pattern. Your turn comes next.</span>';
-    setStageStatus(`Memorize ${sequenceLength} steps.`);
+    replayButton.disabled = true;
+    replayCountLabel.textContent = `${replayLimit - replayCount} left`;
+    replayNote.textContent = isReplay ? `Replay ${replayCount} of ${replayLimit}. Watch closely.` : 'Two replays available per level.';
+    el('sequenceHint').innerHTML = isReplay
+      ? '<span class="hint-icon">↻</span><span>Replay in progress. Watch the pattern again.</span>'
+      : '<span class="hint-icon">✦</span><span>Watch the pattern. Your turn comes next.</span>';
+    setStageStatus(isReplay ? `Replay ${replayCount} of ${replayLimit}: memorize ${sequenceLength} steps.` : `Memorize ${sequenceLength} steps.`);
     for (const index of sequence) {
-      if (token !== state.renderToken) return;
+      if (!isValidTaskToken(token)) return;
       padNodes[index].classList.add('active');
-      await sleepActive(flashTime, token);
+      if (!await sleepActive(flashTime, token)) return;
       padNodes[index].classList.remove('active');
-      await sleepActive(gapTime, token);
+      if (!await sleepActive(gapTime, token)) return;
     }
-    if (token !== state.renderToken) return;
+    if (!isValidTaskToken(token)) return;
     padNodes.forEach((pad) => { pad.disabled = false; });
+    previewing = false;
     waitingForInput = true;
-    lastAction = activeNow();
+    lastAction = activeNow(game);
+    replayButton.disabled = replayCount >= replayLimit;
+    replayCountLabel.textContent = `${replayLimit - replayCount} left`;
+    replayNote.textContent = replayCount >= replayLimit ? 'No replays remaining this level.' : `${replayLimit - replayCount} replay${replayLimit - replayCount === 1 ? '' : 's'} remaining this level.`;
     el('sequenceHint').innerHTML = '<span class="hint-icon">↳</span><span>Your turn. Repeat the steps in order.</span>';
     setStageStatus('Tap the sequence from memory.');
   }
 
   async function completeSequence() {
     padNodes.forEach((pad) => { pad.disabled = true; });
+    replayButton.disabled = true;
     const telemetry = makeRoundMetrics(game, round, {
-      attempts: submissionCount,
+      attempts: Math.max(1, submissionCount),
       correct_attempts: 1,
       incorrect_attempts: mistakes,
       reaction_times: reactionTimes,
       hesitation_count: hesitationCount,
-      completion_time_sec: (activeNow() - startedAt) / 1000,
+      completion_time_sec: (activeNow(game) - startedAt) / 1000,
       sequence_length: sequenceLength,
+      pattern_replays: replayCount,
     });
     const result = await submitRound(telemetry, token);
-    if (!result || token !== state.renderToken) return;
+    if (!result || !isValidTaskToken(token)) return;
     const lastRound = round >= SEQUENCE_ROUNDS;
     showFeedback(result, {
       title: lastRound ? 'Pattern master.' : 'Pattern recalled.',
-      message: `You reproduced ${sequenceLength} steps in order${mistakes ? `, with ${mistakes} ${mistakes === 1 ? 'retry' : 'retries'} along the way` : ' on the first try'}. One new step is added to the sequence for the next level.`,
+      message: `You reproduced ${sequenceLength} steps${mistakes ? ` after ${mistakes} ${mistakes === 1 ? 'retry' : 'retries'}` : ' on the first try'} and used ${replayCount} of ${replayLimit} pattern replays. One new step is added for the next level.`,
       buttonText: nextTaskButtonLabel(lastRound),
       next: () => continueAfterRound(game, round, SEQUENCE_ROUNDS),
     });
@@ -676,14 +912,14 @@ function startSequenceRound(game, round) {
 
 function activeWait(milliseconds, token, shouldStop = () => false) {
   return (async () => {
-    const startedAt = activeNow();
-    while (activeNow() - startedAt < milliseconds) {
-      if (token !== state.renderToken) return false;
+    const startedAt = activeNow(state.tokenOwners[token]);
+    while (activeNow(state.tokenOwners[token]) - startedAt < milliseconds) {
+      if (!isValidTaskToken(token)) return false;
       if (shouldStop()) return true;
-      const remaining = milliseconds - (activeNow() - startedAt);
+      const remaining = milliseconds - (activeNow(state.tokenOwners[token]) - startedAt);
       if (!await sleepActive(Math.min(30, Math.max(1, remaining)), token)) return false;
     }
-    return token === state.renderToken;
+    return isValidTaskToken(token);
   })();
 }
 
@@ -691,9 +927,10 @@ function activeWait(milliseconds, token, shouldStop = () => false) {
 // anticipations, omissions and inhibition slips remain visible to the agents.
 function startReflexRound(game) {
   state.currentRound = 1;
+  if (state.taskProgress[game]) state.taskProgress[game].nextRound = 1;
   const task = TASKS.find((item) => item.key === game);
   setGameHeader(task, 1);
-  const token = ++state.renderToken;
+  const token = beginTaskRender(game);
   const level = clamp(state.difficulty[game] || 1, 1, 3);
   const settings = getTaskSettings(game, level);
   const trials = [];
@@ -711,7 +948,7 @@ function startReflexRound(game) {
   let currentStimulus = null;
   let currentIsTarget = true;
   let onsetAt = 0;
-  const startedAt = activeNow();
+  const startedAt = activeNow(game);
   const choiceButtons = game === 'reflex_choice'
     ? `<div class="reflex-choice-grid" id="reflexChoiceButtons">${CHOICE_STIMULI.map((item) => `<button class="reflex-choice" type="button" data-choice="${item.id}" hidden><span style="color:${item.color}">${item.glyph}</span><b>${item.label}</b></button>`).join('')}</div>`
     : '';
@@ -722,7 +959,6 @@ function startReflexRound(game) {
       ${choiceButtons}
       <div class="reflex-trial-progress" id="reflexTrialProgress"><span></span></div>
       <div class="reflex-live-stats"><span>False starts <b id="reflexFalseStarts">0</b></span><span>Median response <b id="reflexMedian">—</b></span></div>
-      <button class="primary-button reflex-start" id="reflexStart" type="button">Begin 12 trials <span class="button-arrow">↗</span></button>
     </div>
     <div class="stage-status" id="stageStatus"><span class="status-indicator"></span><span>Ready when you are.</span></div>`;
 
@@ -731,7 +967,7 @@ function startReflexRound(game) {
   const choiceNodes = [...document.querySelectorAll('.reflex-choice')];
 
   function respond(value) {
-    if (state.isPaused || token !== state.renderToken || phase === 'idle' || phase === 'between' || phase === 'done') return;
+    if (state.isPaused || !isValidTaskToken(token) || phase === 'idle' || phase === 'between' || phase === 'done') return;
     if (phase === 'waiting') {
       premature = true;
       setStageStatus('That was early. Wait for the cue, then try again.', 'error');
@@ -745,8 +981,7 @@ function startReflexRound(game) {
   choiceNodes.forEach((button) => button.addEventListener('click', () => respond(button.dataset.choice)));
 
   async function runTrials() {
-    startNode.disabled = true;
-    startNode.classList.add('hidden');
+    if (startNode) { startNode.disabled = true; startNode.classList.add('hidden'); }
     phase = 'waiting';
     const goNoGoPlan = Array(REFLEX_TRIALS).fill(true);
     if (game === 'reflex_gonogo') {
@@ -785,7 +1020,7 @@ function startReflexRound(game) {
         : game === 'reflex_choice' ? 'Wait for the symbol. Then choose the matching label.' : 'Wait until the target glows, then click it.';
       setStageStatus(`Trial ${nextTrialNumber} of ${REFLEX_TRIALS}. Wait for the cue.`);
       await activeWait(waitMs, token, () => premature);
-      if (token !== state.renderToken) return;
+      if (!isValidTaskToken(token)) return;
       if (premature) {
         falseStarts += 1;
         incorrectCount += 1;
@@ -798,7 +1033,7 @@ function startReflexRound(game) {
       }
 
       phase = 'active';
-      onsetAt = activeNow();
+      onsetAt = activeNow(game);
       targetNode.className = `reflex-target ${game === 'reflex_gonogo' && !currentIsTarget ? 'is-no-go' : 'is-go'}`;
       if (game === 'reflex_simple') {
         targetNode.innerHTML = '<span class="reflex-target-glyph">✦</span><b>NOW</b>';
@@ -812,13 +1047,13 @@ function startReflexRound(game) {
       setStageStatus(game === 'reflex_gonogo' && !currentIsTarget ? 'Hold your response for NO-GO.' : 'Respond now.');
       const windowMs = settings.response_window_ms;
       await activeWait(windowMs, token, () => responded);
-      if (token !== state.renderToken) return;
+      if (!isValidTaskToken(token)) return;
 
       let isCorrect = false;
       let outcome = '';
       let rt = null;
       if (responded) {
-        rt = Math.max(0, activeNow() - onsetAt);
+        rt = Math.max(0, activeNow(game) - onsetAt);
         reactionTimes.push(rt);
         if (game === 'reflex_gonogo' && !currentIsTarget) {
           commissionErrors += 1;
@@ -861,7 +1096,7 @@ function startReflexRound(game) {
       phase = 'between';
       await sleepActive(320, token);
     }
-    if (token !== state.renderToken) return;
+    if (!isValidTaskToken(token)) return;
     phase = 'done';
     targetNode.className = 'reflex-target is-ready';
     targetNode.innerHTML = '<span class="reflex-target-glyph">✦</span><b>Block complete</b>';
@@ -869,13 +1104,13 @@ function startReflexRound(game) {
     const telemetry = makeRoundMetrics(game, 1, {
       attempts: Math.max(1, correctCount + incorrectCount), correct_attempts: correctCount,
       incorrect_attempts: incorrectCount, reaction_times: reactionTimes,
-      completion_time_sec: (activeNow() - startedAt) / 1000,
+      completion_time_sec: (activeNow(game) - startedAt) / 1000,
       trials, trial_count: trials.length, valid_trial_count: validTrialCount,
       false_starts: falseStarts, omission_errors: omissionErrors, commission_errors: commissionErrors,
       task_parameters: settings,
     });
     const result = await submitRound(telemetry, token);
-    if (!result || token !== state.renderToken) return;
+    if (!result || !isValidTaskToken(token)) return;
     const message = game === 'reflex_gonogo'
       ? `You completed ${validTrialCount} go/ no-go trials with ${commissionErrors} commission errors, ${omissionErrors} missed GO targets and ${falseStarts} early responses.`
       : `You completed ${validTrialCount} trials with a median response of ${Math.round(median(reactionTimes)) || 0} ms and ${falseStarts} early responses.`;
@@ -885,7 +1120,8 @@ function startReflexRound(game) {
       next: () => continueAfterRound(game, 1, 1),
     });
   }
-  startNode.addEventListener('click', runTrials, { once: true });
+  // The first-round instruction card is the single start gate for this task.
+  runTrials();
 }
 
 function normalizeRecallInput(value) {
@@ -893,14 +1129,14 @@ function normalizeRecallInput(value) {
 }
 
 function renderRecallEntry(stageTitle, prompt, total, onSubmit, token) {
-  if (token !== state.renderToken) return;
+  if (!isValidTaskToken(token)) return;
   let submitted = false;
   el('gameMount').innerHTML = `${stageHead(stageTitle, prompt, total, 'Items in list', '—', 'Recall')}
     <div class="recall-entry-wrap"><div class="recall-entry-icon">✎</div><label for="recallAnswer" class="recall-entry-label">Type the words you remember</label><textarea id="recallAnswer" rows="3" autocomplete="off" spellcheck="false" placeholder="Separate words with commas or spaces"></textarea>
     <p class="recall-helper">Use any order. Spelling should be close enough to recognize the original word.</p><button class="primary-button" id="recallSubmit" type="button">Submit recall <span class="button-arrow">↗</span></button></div>
     <div class="stage-status" id="stageStatus"><span class="status-indicator"></span><span>Take a moment and enter the items you remember.</span></div>`;
   const submit = () => {
-    if (submitted || token !== state.renderToken) return;
+    if (submitted || !isValidTaskToken(token)) return;
     submitted = true;
     const value = el('recallAnswer').value;
     el('recallSubmit').disabled = true;
@@ -921,9 +1157,10 @@ function renderRecallEntry(stageTitle, prompt, total, onSubmit, token) {
 // delayed free recall and recognition. Only counts are stored, not typed answer text.
 function startDelayedRecall() {
   state.currentRound = 1;
+  if (state.taskProgress['delayed_recall']) state.taskProgress['delayed_recall'].nextRound = 1;
   const task = TASKS.find((item) => item.key === 'delayed_recall');
   setGameHeader(task, 1);
-  const token = ++state.renderToken;
+  const token = beginTaskRender('delayed_recall');
   const level = clamp(state.difficulty.delayed_recall || 1, 1, 3);
   const settings = getTaskSettings('delayed_recall', level);
   const itemCount = settings.item_count;
@@ -934,29 +1171,29 @@ function startDelayedRecall() {
   let distractorTaps = 0;
   const recognitionTrials = [];
   const recognitionTimes = [];
-  const startedAt = activeNow();
+  const startedAt = activeNow('delayed_recall');
 
   el('gameMount').innerHTML = `${stageHead('MEMORY LAB · LEARN', 'Study the words and symbols. They will disappear before the recall questions.', itemCount, 'Items', settings.study_seconds, 'Seconds')}
     <div class="recall-study-wrap"><div class="recall-countdown" id="recallCountdown">${settings.study_seconds}</div><div class="recall-study-grid">${studyItems.map((item) => `<div class="recall-study-item"><span>${item.symbol}</span><b>${item.word}</b></div>`).join('')}</div><p>Try to learn each word. You will be asked to recall them without seeing the list.</p></div>
     <div class="stage-status" id="stageStatus"><span class="status-indicator"></span><span>Study the list until the timer ends.</span></div>`;
   (async () => {
     const totalMs = settings.study_seconds * 1000;
-    const beginAt = activeNow();
-    while (activeNow() - beginAt < totalMs) {
+    const beginAt = activeNow('delayed_recall');
+    while (activeNow('delayed_recall') - beginAt < totalMs) {
       if (!await sleepActive(200, token)) return;
-      const seconds = Math.max(0, Math.ceil((totalMs - (activeNow() - beginAt)) / 1000));
+      const seconds = Math.max(0, Math.ceil((totalMs - (activeNow('delayed_recall') - beginAt)) / 1000));
       const countdown = el('recallCountdown');
       if (countdown) countdown.textContent = String(seconds);
     }
-    if (token !== state.renderToken) return;
+    if (!isValidTaskToken(token)) return;
     renderRecallEntry('MEMORY LAB · IMMEDIATE RECALL', 'The list has disappeared. Type any words you remember right now.', itemCount, (answer) => {
       const recalled = new Set(normalizeRecallInput(answer));
       immediateCount = [...targetWords].filter((word) => recalled.has(word)).length;
       const immediateIncorrect = Math.max(0, itemCount - immediateCount);
       (async () => {
-        if (token !== state.renderToken) return;
+        if (!isValidTaskToken(token)) return;
         await runRecallDistractor(token, settings.delay_seconds, () => { distractorTaps += 1; });
-        if (token !== state.renderToken) return;
+        if (!isValidTaskToken(token)) return;
         renderRecallEntry('MEMORY LAB · DELAYED RECALL', `After the brief distraction, recall the same ${itemCount} words again without seeing the list.`, itemCount, (delayedAnswer) => {
           const delayed = new Set(normalizeRecallInput(delayedAnswer));
           delayedCount = [...targetWords].filter((word) => delayed.has(word)).length;
@@ -986,10 +1223,10 @@ function startDelayedRecall() {
       target.classList.add('tap-pop');
     });
     const durationMs = durationSeconds * 1000;
-    const beginAt = activeNow();
-    while (activeNow() - beginAt < durationMs) {
+    const beginAt = activeNow('delayed_recall');
+    while (activeNow('delayed_recall') - beginAt < durationMs) {
       if (!await sleepActive(220, currentToken)) return;
-      const remaining = Math.max(0, Math.ceil((durationMs - (activeNow() - beginAt)) / 1000));
+      const remaining = Math.max(0, Math.ceil((durationMs - (activeNow('delayed_recall') - beginAt)) / 1000));
       const count = el('distractorCountdown');
       if (count) count.textContent = String(remaining);
       if (stage && target) {
@@ -1000,18 +1237,18 @@ function startDelayedRecall() {
   }
 
   function runRecognition(deck, index) {
-    if (token !== state.renderToken) return;
+    if (!isValidTaskToken(token)) return;
     if (index >= deck.length) {
       finishDelayedRecall();
       return;
     }
     const item = deck[index];
-    const onset = activeNow();
+    const onset = activeNow('delayed_recall');
     el('gameMount').innerHTML = `${stageHead('MEMORY LAB · RECOGNITION', 'Did this word appear in the original list? Answer yes or no.', deck.length, 'Trials', index + 1, 'Current')}
       <div class="recognition-wrap"><div class="recognition-card"><span>${item.symbol}</span><b>${item.word}</b></div><div class="recognition-actions"><button class="secondary-button recognition-choice" id="recognitionNo" type="button">No, new word</button><button class="primary-button recognition-choice" id="recognitionYes" type="button">Yes, I saw it</button></div><div class="recognition-progress"><span style="width:${(index / deck.length) * 100}%"></span></div></div>
       <div class="stage-status" id="stageStatus"><span class="status-indicator"></span><span>Trust your memory. Do not worry about guessing.</span></div>`;
     const answer = (saw) => {
-      const reaction = Math.max(0, activeNow() - onset);
+      const reaction = Math.max(0, activeNow('delayed_recall') - onset);
       const correct = saw === item.isTarget;
       reactionTimesSafePush(recognitionTimes, reaction);
       if (item.isTarget && saw) recognitionStats.hits += 1;
@@ -1040,7 +1277,7 @@ function startDelayedRecall() {
     const incorrect = (itemCount - immediateCount) + (itemCount - delayedCount) + recognitionStats.misses + recognitionStats.falseAlarms;
     const telemetry = makeRoundMetrics('delayed_recall', 1, {
       attempts: Math.max(1, correct + incorrect), correct_attempts: correct, incorrect_attempts: incorrect,
-      reaction_times: recognitionTimes, completion_time_sec: (activeNow() - startedAt) / 1000,
+      reaction_times: recognitionTimes, completion_time_sec: (activeNow('delayed_recall') - startedAt) / 1000,
       trials: allTrials, trial_count: allTrials.length, valid_trial_count: recognitionTrials.length,
       immediate_total: itemCount, immediate_recall_count: immediateCount,
       delayed_total: itemCount, delayed_recall_count: delayedCount,
@@ -1051,7 +1288,7 @@ function startDelayedRecall() {
       task_parameters: settings,
     });
     const result = await submitRound(telemetry, token);
-    if (!result || token !== state.renderToken) return;
+    if (!result || !isValidTaskToken(token)) return;
     showFeedback(result, {
       title: 'Delayed recall, complete.',
       message: `Immediate recall: ${immediateCount}/${itemCount}. Delayed recall: ${delayedCount}/${itemCount}. Recognition hits: ${recognitionStats.hits}/${itemCount}; false recognitions: ${recognitionStats.falseAlarms}.`,
@@ -1125,9 +1362,10 @@ function readableTextColor(hex) {
 
 function startStroopRound(round) {
   state.currentRound = round;
+  if (state.taskProgress['stroop']) state.taskProgress['stroop'].nextRound = round;
   const task = TASKS[3];
   setGameHeader(task, round);
-  const token = ++state.renderToken;
+  const token = beginTaskRender('stroop');
   const difficulty = clamp(state.difficulty.stroop || 1, 1, 3);
   const pair = chooseStroopPair(round, difficulty);
   const wordColor = STROOP_COLORS[pair.wordIndex];
@@ -1137,10 +1375,10 @@ function startStroopRound(round) {
   let wordReadingErrors = 0;
   let hesitationCount = 0;
   let reactionTimes = [];
-  let lastAction = activeNow();
+  let lastAction = activeNow('stroop');
   let choiceLocked = false;
   let lastCorrectPosition = -1;
-  const startedAt = activeNow();
+  const startedAt = activeNow('stroop');
 
   el('gameMount').innerHTML = `${stageHead(`TRIAL ${round} OF ${STROOP_ROUNDS}`, 'Choose the ink color. Ignore both the word and each button’s fill color.', STROOP_COLORS.length, 'Colors', attempts, 'Attempts')}
     <div class="stroop-layout"><div class="stroop-stimulus"><div class="stroop-word" style="color:${inkColor.hex}">${wordColor.name}</div></div>
@@ -1185,8 +1423,8 @@ function startStroopRound(round) {
   }
 
   async function handleChoice(button) {
-    if (state.isPaused || token !== state.renderToken || button.disabled || choiceLocked) return;
-    const now = activeNow();
+    if (state.isPaused || !isValidTaskToken(token) || button.disabled || choiceLocked) return;
+    const now = activeNow('stroop');
     const reaction = Math.max(0, now - lastAction);
     reactionTimes.push(reaction);
     if (reaction >= 3000) hesitationCount += 1;
@@ -1217,7 +1455,7 @@ function startStroopRound(round) {
     if (!stillHere) return;
     renderOptions();
     choiceLocked = false;
-    lastAction = activeNow();
+    lastAction = activeNow('stroop');
     setStageStatus('Same word, same ink. The buttons have moved. Try again.');
   }
 
@@ -1230,11 +1468,11 @@ function startStroopRound(round) {
       incorrect_attempts: failures,
       reaction_times: reactionTimes,
       hesitation_count: hesitationCount,
-      completion_time_sec: (activeNow() - startedAt) / 1000,
+      completion_time_sec: (activeNow('stroop') - startedAt) / 1000,
       word_reading_errors: wordReadingErrors,
     });
     const result = await submitRound(telemetry, token);
-    if (!result || token !== state.renderToken) return;
+    if (!result || !isValidTaskToken(token)) return;
     const lastRound = round >= STROOP_ROUNDS;
     showFeedback(result, {
       title: lastRound ? 'Focus, complete.' : 'Nice focus.',
@@ -1317,6 +1555,13 @@ function resetWelcome() {
   state.taskIndex = 0;
   state.currentRound = 1;
   state.renderToken += 1;
+  state.activeTaskKey = null;
+  state.taskViews = {};
+  state.taskProgress = freshTaskProgress();
+  state.taskTokens = {};
+  state.tokenOwners = {};
+  state.taskClocks = {};
+  state.isSubmitting = false;
   state.isPaused = false;
   state.pausedTotalMs = 0;
   el('pauseOverlay').classList.add('hidden');
@@ -1331,10 +1576,12 @@ function togglePause(forceValue) {
   if (nextValue) {
     state.isPaused = true;
     state.pauseStartedAt = performance.now();
+    pauseTaskClock(state.activeTaskKey);
     el('pauseOverlay').classList.remove('hidden');
   } else {
     state.pausedTotalMs += performance.now() - state.pauseStartedAt;
     state.isPaused = false;
+    resumeTaskClock(state.activeTaskKey);
     el('pauseOverlay').classList.add('hidden');
   }
 }
@@ -1396,6 +1643,10 @@ async function updateAgentPanel() {
 }
 
 el('startForm').addEventListener('submit', beginSession);
+el('taskNav').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-task]');
+  if (button && !button.disabled) openTaskByKey(button.dataset.task);
+});
 el('exportResults').addEventListener('click', exportResults);
 el('restartSession').addEventListener('click', resetWelcome);
 el('resumeButton').addEventListener('click', () => togglePause(false));
